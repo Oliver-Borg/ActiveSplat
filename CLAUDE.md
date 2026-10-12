@@ -1,0 +1,29 @@
+# ActiveSplat – notes for Claude
+
+## GPU etiquette (shared machine: 4× L40S, other users)
+
+- **Always check `nvidia-smi` right before launching any GPU job.** Never start a job on a GPU that has another user's process on it or non-trivial memory/utilisation in use. See who owns each GPU process:
+  ```bash
+  nvidia-smi --query-gpu=index,uuid,memory.used,utilization.gpu --format=csv,noheader
+  nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader \
+    | while IFS=', ' read -r uuid pid mem _; do echo "$uuid $mem MiB $(ps -o user=,cmd= -p $pid 2>/dev/null | cut -c1-80)"; done
+  ```
+  If the GPUs are busy, wait or ask the user. Don't squeeze in alongside someone else.
+- **Long-running jobs (anything over ~15 min, e.g. full 1000+ step runs) may use at most 2 GPUs at once**, even when all 4 look free. Queue the rest instead of spreading across all 4. Short smoke tests may use a free GPU beyond that, but check first all the same.
+- Pin a job to a GPU with `CUDA_VISIBLE_DEVICES=N` **and** `gpu_id:=0` / `--gpu_id 0`. Open3D in this env sees only one device, so `gpu_id:=1..3` crashes the mapper ("Invalid CUDA Device").
+
+## Running scenes
+
+- Machine is headless: always pass `hide_mapper_windows:=1 hide_planner_windows:=1`; use `save_runtime_data:=1` to get images to look at.
+- Give each concurrent run its own ROS master: `export ROS_MASTER_URI=http://localhost:<port>` and `roslaunch -p <port> ...`.
+- `roslaunch` does not exit after the nodes finish. Wait for `mapper node finished`, then send SIGINT. The mapper always ends with an Open3D "leaking memory blocks on CUDA:0" abort (exit -6) *after* saving; that is harmless.
+- Configs: `config/datasets/gibson*.json`; `*_high_resolution.json` = 512² sensor + 10 mapping iters. Dataset roots live in `config/user_config.json` (gitignored; currently points `gibson` at the Habitat test scenes).
+- Dataset configs must live in `config/datasets/`: paths inside them (e.g. `env.config`) resolve relative to the repo, via the config file's location.
+- `mapper.gaussian_seeding.method`: `depth` (default when the block is absent) or `vggt_omega`, which seeds new Gaussians from VGGT-Ω depth (scaled to the sensor depth's median) with kNN scales; SplaTAM still optimises them. VGGT-Ω runs in its own env (`vggt-omega`, py3.11, torch 2.6, `pip install -e ~/work/git/vggt-omega`) as a worker process (`src/mapper/vggt_omega/worker.py`) on the same GPU. Example: `config/datasets/gibson_high_resolution_vggt_omega.json`. Checkpoint is gated on Hugging Face (facebook/VGGT-Omega); an empty `checkpoint` uses random weights (plumbing tests only). VGGT-Ω runs also write `pose_errors.csv`: VGGT-Ω's predicted pose of each window frame relative to the current frame vs. the true pose (translations scaled by the depth-alignment factor). Mapper poses themselves are the simulator's and never optimised, so sensor-depth runs have no pose error.
+- Evaluate a run: `python scripts/judges/eval_actions.py --save_path $r/actions_error.txt --config $r/config.json --user_config config/user_config.json --actions $r/actions.txt --gpu_id 0`.
+- `gaussians_data/transforms.json` has zero translation for every frame. Use the poses in `gaussians_data/params.npz` (`cam_unnorm_rots`, `cam_trans`, w2c) instead.
+
+## Python environments
+
+- The shell's `PYTHONPATH` points at the `ActiveSplat` env's site-packages (catkin workspace is sourced). Run any **other** env's `pip`/`python` with `env -u PYTHONPATH`, or pip will uninstall packages from the ActiveSplat env. Run `pip check` there after any install.
+- Results dashboard: separate env `activesplat-dash` (py3.11, gradio 5), launched with `scripts/tools/dashboard.sh` (port 7860). The Videos tab encodes `<run>/videos/*.mp4` from the runtime frames with `imageio-ffmpeg` (bundled ffmpeg, installed in that env); `render_rgbd` is the Gaussian map rendered at the drone's pose, the sensor view is `gaussians_data/{rgb,depth}`. The "Real-time video" section of that tab builds `<run>/videos/realtime_<N>x.mp4`: sensor view plus top-down maps, timed with user-set forward/turn speeds and per-step stop-and-capture time (step size and turn angle read from the run's habitat env yaml).
