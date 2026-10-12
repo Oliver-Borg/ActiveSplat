@@ -68,6 +68,9 @@ VORONOI_GRAPH = {
     'nodes_material': 'unlit_mat',
 }
 class Visualizer:
+    # NOTE: factor by which the saved runtime top-down visibility map is up-sampled relative to the planning grid
+    TOPDOWN_SAVE_SCALE = 4
+
         
     class LocalDatasetState(Enum):
         INITIALIZING = 0
@@ -864,6 +867,7 @@ class Visualizer:
         self.__gaussian_packet = None
         self.__render_topdown_free_map = None
         self.__render_topdown_visible_map = None
+        self.__render_topdown_visible_map_saved = None
         self.voronoi_3d_ridges = None
         self.gaussians_num = 0
         self.nodes_score = np.zeros(100)
@@ -940,6 +944,10 @@ class Visualizer:
                                                     self.__agent_foot - self.__agent_foot_adjust)
                     self.__render_topdown_free_map = self.__mapper.render_o3d_image(gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True)
                     self.__render_topdown_visible_map = self.__mapper.render_o3d_image(self.__gaussian_for_render, topdown_cam, scale_modifier=0.01)
+                    if self.__save_runtime_data:
+                        # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution
+                        self.__render_topdown_visible_map_saved = self.__mapper.render_o3d_image(
+                            self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01)
                     self.__use_gaussian_condition.release()
                 rerender_topdown_flag = True
             Log(f'Topdown render used {end_timing(*timing_topdown_render):.2f} ms')
@@ -1578,7 +1586,7 @@ class Visualizer:
             self.__widget_3d.scene.set_background([0, 0, 0, 1], o3d.geometry.Image(render_img))
         self.render_use_time_info.text = f'Render gaussians used {end_timing(*timing_render_gaussian):.2f} ms'
     
-    def get_topdown_cam(self):
+    def get_topdown_cam(self, resolution_scale:int=1):
         camera_pose_h = 1000.0
         c2w = np.eye(4)
         c2w[:3, :3] = np.array(
@@ -1592,8 +1600,8 @@ class Visualizer:
         w2c = np.linalg.inv(c2w)
         scene_width = self.__topdown_info['topdown_world_shape'][0]
         scene_height = self.__topdown_info['topdown_world_shape'][1]
-        height = self.__topdown_info['grid_map_shape'][1]
-        width = self.__topdown_info['grid_map_shape'][0]
+        height = self.__topdown_info['grid_map_shape'][1] * resolution_scale
+        width = self.__topdown_info['grid_map_shape'][0] * resolution_scale
         image_topdown = torch.zeros(
             (1, int(height), int(width))
         )
@@ -1849,6 +1857,28 @@ class Visualizer:
             topdown_visible_map_o3d = o3d.geometry.Image(topdown_visible_map)
             if self.__save_runtime_data:
                 self.__runtime_data_info['current_vis_data']['topdown_visible_map'] = topdown_visible_map
+                if self.__render_topdown_visible_map_saved is not None:
+                    scale = self.TOPDOWN_SAVE_SCALE
+                    topdown_visible_map = self.__render_topdown_visible_map_saved.copy()
+                    if self.__topdown_info['rotation_vector'] is not None and self.__topdown_info['translation_pixel'] is not None:
+                        topdown_visible_map = visualize_agent(
+                            topdown_map=topdown_visible_map,
+                            meter_per_pixel=self.__topdown_info['meter_per_pixel'],
+                            agent_translation=self.__topdown_info['translation_pixel'],
+                            agent_rotation_vector=self.__topdown_info['rotation_vector'],
+                            agent_color=(128, 255, 128),
+                            agent_radius=self.__dataset_config.agent_radius,
+                            rotation_vector_color=(0, 255, 0),
+                            rotation_vector_thickness=2,
+                            rotation_vector_length=20,
+                            resize_scale=scale)
+                    if self.__current_horizon is not None:
+                        cv2.rectangle(
+                            topdown_visible_map,
+                            np.int32(self.__current_horizon[0] * scale),
+                            np.int32(self.__current_horizon[1] * scale),
+                            (255, 0, 0),
+                            scale)
                 cv2.imwrite(os.path.join(self.__runtime_data_info['topdown_visible_map_dir'], f'{self.__traj_info["step_times"]}.png'), cv2.cvtColor(topdown_visible_map, cv2.COLOR_RGB2BGR))
             
         topdown_visible_map_binary_o3d = None
