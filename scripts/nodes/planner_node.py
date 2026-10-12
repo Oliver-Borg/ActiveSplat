@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import time
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 SRC_PATH = os.path.abspath(os.path.join(PACKAGE_PATH, 'src'))
 import sys
@@ -29,7 +30,7 @@ import rospy
 from std_msgs.msg import Int32, Bool
 from geometry_msgs.msg import PoseStamped, Twist, Pose, Point
 
-from utils import PROJECT_NAME, GlobalState
+from utils import PROJECT_NAME, GlobalState, planner_timing_recorder
 from utils.logging_utils import Log
 from utils.gui_utils import PoseChangeType, c2w_world_to_topdown, c2w_topdown_to_world, is_pose_changed, get_horizon_bound_topdown
 from dataloader import PoseDataType, convert_to_c2w_opencv
@@ -104,6 +105,9 @@ class PlannerNode:
         self.__local_view_count_limit = config['planner']['local_view_limit']
         self.__radius_num_as_rotated = config['planner']['radius_num_as_rotated']
         self.__save_runtime_data = save_runtime_data
+        # NOTE: timing: 'step' is the number of accepted pose updates so far; tracked seconds are the part of the planner loop already recorded separately
+        self.__pose_count = 0
+        self.__tracked_seconds = 0.0
         
         self.__global_state = None
         self.__global_state_condition = threading.Condition()
@@ -151,8 +155,14 @@ class PlannerNode:
         self.__trigger_update_high_connectivity_nodes_pub = rospy.Publisher('update_high_connectivity_nodes_vis', Bool, queue_size=1)
         self.__trigger_update_global_visibility_map_pub = rospy.Publisher('update_global_visibility_map_vis', Int32, queue_size=1)
         self.__fail_vertices_nodes_index = []
+        loop_mark = None
         
         while not rospy.is_shutdown() and self.__global_state != GlobalState.QUIT:
+            if loop_mark is not None:
+                # NOTE: the rest of a loop iteration (node selection, path planning, ...) is the planner's decision logic
+                now = time.perf_counter()
+                planner_timing_recorder.record('plan_logic', self.__pose_count, (now - loop_mark[0] - (self.__tracked_seconds - loop_mark[1])) * 1000)
+            loop_mark = None
             if self.__global_state not in self.__ENABLE_STATES:
                 if self.__global_state == GlobalState.REPLAY:
                     self.__setup_for_episode()
@@ -161,6 +171,7 @@ class PlannerNode:
                     self.__rotation_arrived_flag = True
                 continue
             else:
+                loop_mark = (time.perf_counter(), self.__tracked_seconds)
                 if self.__bootstrap_flag:
                     set_mapper_request:SetMapperRequest = SetMapperRequest()
                     set_mapper_request.kf_every = 1
@@ -498,7 +509,7 @@ class PlannerNode:
                     
                     if not self.__local_path_executing:
                         try:
-                            get_opacity_response:GetOpacityResponse = self.__get_opacity_service(GetOpacityRequest(self.__rotation_arrived_flag, [], []))
+                            get_opacity_response:GetOpacityResponse = self.__timed_service('opacity_wait', self.__get_opacity_service, GetOpacityRequest(self.__rotation_arrived_flag, [], []))
                         except rospy.ServiceException as e:
                             rospy.logerr(f'Get local opacity service call failed: {e}')
                             self.__global_state = GlobalState.QUIT
@@ -937,6 +948,7 @@ class PlannerNode:
         self.__dataset_config:GetDatasetConfigResponse = self.__get_dataset_config_service(GetDatasetConfigRequest())
         self.__results_dir = self.__dataset_config.results_dir
         os.makedirs(self.__results_dir, exist_ok=True)
+        planner_timing_recorder.open(self.__results_dir)
         self.__save_topdown_map_count = 0
         if self.__save_runtime_data:
             self.__topdown_map_dir = os.path.join(self.__results_dir, 'topdown_map')
@@ -1020,9 +1032,27 @@ class PlannerNode:
         with self.__update_map_cv2_condition:
             self.__update_map_cv2_condition.notify_all()
                         
-    def __get_topdown(self) -> None:
+    def __timed_service(self, stage:str, service, request):
+        '''Calls a mapper service, recording how long the planner waited for it.'''
+        start = time.perf_counter()
         try:
-            get_topdown_response:GetTopdownResponse = self.__get_topdown_service(GetTopdownRequest(self.__rotation_arrived_flag))
+            return service(request)
+        finally:
+            elapsed = time.perf_counter() - start
+            self.__tracked_seconds += elapsed
+            planner_timing_recorder.record(stage, self.__pose_count, elapsed * 1000)
+
+    def __get_topdown(self) -> None:
+        # NOTE: planner compute of this call = everything except the waits on the mapper's services (topdown render, opacity)
+        start, tracked_before = time.perf_counter(), self.__tracked_seconds
+        self.__get_topdown_impl()
+        cpu = time.perf_counter() - start - (self.__tracked_seconds - tracked_before)
+        self.__tracked_seconds += cpu
+        planner_timing_recorder.record('plan_topdown', self.__pose_count, cpu * 1000)
+
+    def __get_topdown_impl(self) -> None:
+        try:
+            get_topdown_response:GetTopdownResponse = self.__timed_service('topdown_wait', self.__get_topdown_service, GetTopdownRequest(self.__rotation_arrived_flag))
         except rospy.ServiceException as e:
             rospy.logerr(f'Get topdown service call failed: {e}')
             self.__global_state = GlobalState.QUIT
@@ -1109,7 +1139,7 @@ class PlannerNode:
                     p.z = node_vertex_c2w_world[2]
                     node_vertex_c2w_worlds.append(p)
                 try:
-                    get_opacity_response:GetOpacityResponse = self.__get_opacity_service(GetOpacityRequest(self.__rotation_arrived_flag, node_vertex_c2w_worlds, nodes_id))
+                    get_opacity_response:GetOpacityResponse = self.__timed_service('opacity_wait', self.__get_opacity_service, GetOpacityRequest(self.__rotation_arrived_flag, node_vertex_c2w_worlds, nodes_id))
                 except rospy.ServiceException as e:
                     rospy.logerr(f'Get global opacity service call failed: {e}')
                     self.__global_state = GlobalState.QUIT
@@ -1616,6 +1646,7 @@ class PlannerNode:
             'closest_node_index': self.closest_node_index}
         
         self.__pose_last = pose_current.copy()
+        self.__pose_count += 1
         self.__topdown_translation_array = np.vstack([self.__topdown_translation_array, pose_topdown_translation])
         
         if self.__global_state in self.__ENABLE_STATES:

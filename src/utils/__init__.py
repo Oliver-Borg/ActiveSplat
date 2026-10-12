@@ -100,6 +100,8 @@ class TimingRecorder(CsvRecorder):
         self.write_row([stage, step, f'{elapsed_ms:.3f}'])
 
 timing_recorder = TimingRecorder()
+# NOTE: the planner is its own process, so it writes its own file (two processes sharing one file would race on the header)
+planner_timing_recorder = TimingRecorder('planner_timing.csv')
 # NOTE: VGGT-Omega's predicted pose of each window frame relative to the current frame, against the true poses
 pose_error_recorder = CsvRecorder('pose_errors.csv', ['step', 'frame', 'window_size', 'rot_err_deg', 'trans_err_m',
                                                       'trans_dir_err_deg', 'gt_baseline_m', 'scale'])
