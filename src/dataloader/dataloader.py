@@ -266,9 +266,13 @@ class HabitatDataset(Dataset):
         return apply_movement_flag
     
     def apply_action(self, act_value) -> bool:
-        self._sim.action_space
+        if self._step_times >= self._step_num:
+            self._finished_flag = True
+            return False
         self._sim.step(act_value)
         self._step_times += 1
+        with open(self._action_file, 'a') as f:
+            f.write(f'{act_value}\n')
         return True
     
     def reset(self) -> None:

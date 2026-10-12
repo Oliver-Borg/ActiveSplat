@@ -1765,6 +1765,7 @@ class Visualizer:
             rospy.Subscriber('cmd_vel', Twist, self.__cmd_vel_callback, queue_size=1)
             movement_fail_times = 0
             movement_fail_times_pub = rospy.Publisher('movement_fail_times', Int32, queue_size=1)
+            replay_index = -1
             self.__local_dataset_state = self.LocalDatasetState.INITIALIZED
             self.__local_dataset_condition.notify_all()
             while self.__global_state != GlobalState.QUIT:
@@ -1773,15 +1774,28 @@ class Visualizer:
                     self.__local_dataset_condition.notify_all()
                 if self.__local_dataset.is_finished():
                     self.__global_state = GlobalState.QUIT
-                else:
+                elif self.__actions is None:
                     self.__local_dataset_condition.wait()
+                else:
+                    # NOTE: replaying: the next action only goes out once the mapper has taken the previous frame, so none is dropped
+                    # (the condition's lock is held for the whole loop, so wait() with a timeout is what lets the other threads in)
+                    self.__local_dataset_condition.wait(0.005)
+                    while not self.__frames_cache.empty() and self.__global_state != GlobalState.QUIT:
+                        self.__local_dataset_condition.wait(0.005)
+                    if replay_index >= len(self.__actions):
+                        self.__global_state = GlobalState.QUIT
                 if self.__global_state == GlobalState.QUIT:
                     break
                 apply_movement_flag = self.__local_dataset_twist is not None
                 apply_movement_result = False
                 # NOTE: Capture = simulator step + RGBD sensor render
                 timing_capture = start_timing(use_cuda=False)
-                if apply_movement_flag:
+                if self.__actions is not None:
+                    # NOTE: the first pass only captures the initial frame
+                    if replay_index >= 0:
+                        apply_movement_flag = self.__local_dataset.apply_action(int(self.__actions[replay_index]))
+                    replay_index += 1
+                elif apply_movement_flag:
                     apply_movement_result = self.__local_dataset.apply_movement(self.__local_dataset_twist)
                     self.__local_dataset_twist = None
                 step_times, step_num = self.__local_dataset.get_step_info()
