@@ -102,6 +102,7 @@ class SplaTAM:
         elif seeding_config['method'] != 'depth':
             raise ValueError(f"Unknown gaussian_seeding method: {seeding_config['method']}")
         
+        self.__oracle = None
         self.__mapping_idx = None
         self.__tracking_idx = 0
         self.__est_c2w_data = torch.zeros((self.__step_num, 4, 4)).to(self.__device)
@@ -748,6 +749,29 @@ class SplaTAM:
             depth_np = depth[0, :, :].float().detach().cpu().numpy()
             return rgb_np, depth_np, view_w2c_gl
     
+    def set_oracle(self, oracle) -> None:
+        '''Make the look-around invisibility come from the ground-truth mesh (oracle.OracleScene) instead of the Gaussians.'''
+        self.__oracle = oracle
+
+    def __render_look_around_view(self, view_c2w:np.ndarray, view_w2c:np.ndarray, intrinsics:np.ndarray, cfg:dict, scale_modifier:float):
+        '''One look-around view as numpy: (rgb (H, W, 3) uint8, opacity (H, W), depth (H, W, 1)).'''
+        if self.__oracle is not None:
+            # NOTE: "opacity" is 1 where the surface in view has already been seen by the sensor, so invisibility = 1 - opacity is unseen surface
+            seen, depth = self.__oracle.look_around_view(view_c2w, intrinsics, cfg['viz_w'], cfg['viz_h'])
+            rgb = np.repeat((seen[..., None] * 255).astype(np.uint8), 3, axis=2)
+            return rgb, seen, depth
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c)
+        im, depth, opacity, _, = render(view_w2c, intrinsics, scene_data, scene_depth_data, cfg, scale_modifier)
+        im_np = (
+            (torch.clamp(im, min=0, max=1.0) * 255)
+            .byte()
+            .permute(1, 2, 0)
+            .contiguous()
+            .cpu()
+            .numpy()
+        )
+        return im_np, opacity[0, :, :].detach().cpu().numpy(), depth.float().detach().permute(1, 2, 0).cpu().numpy()
+
     @torch.no_grad()
     def get_global_invisibility(self, batch:Dict[str, torch.Tensor], node_id, position:np.ndarray, scale_modifier=1.0, show_image=False):
         _, _, view_c2w = self.__get_np_data(batch)
@@ -770,24 +794,16 @@ class SplaTAM:
         for i in range(int(360 / hfov)):
             view_c2w_tmp = rot_axis(view_c2w, 'y', np.deg2rad(hfov*i))
             view_w2c_tmp = np.linalg.inv(view_c2w_tmp)
-            scene_data, scene_depth_data = get_rendervars(self.params, view_w2c_tmp)
-            im, depth, opacity, _, = render(view_w2c_tmp, look_around_k, scene_data, scene_depth_data, look_around_cfg, scale_modifier)
-            im_np = (
-                (torch.clamp(im, min=0, max=1.0) * 255)
-                .byte()
-                .permute(1, 2, 0)
-                .contiguous()
-                .cpu()
-                .numpy()
-            )
+            im_np, view_opacity_np, view_depth_np = self.__render_look_around_view(
+                view_c2w_tmp, view_w2c_tmp, look_around_k, look_around_cfg, scale_modifier)
             if i == 0:
-                opacity_np = opacity[0, :, :].detach().cpu().numpy()
+                opacity_np = view_opacity_np
                 rgb_np = im_np.copy()
-                depth_np = depth.float().detach().permute(1, 2, 0).cpu().numpy()
+                depth_np = view_depth_np
             else:
-                opacity_np = np.hstack((opacity_np, opacity[0, :, :].detach().cpu().numpy()))
+                opacity_np = np.hstack((opacity_np, view_opacity_np))
                 rgb_np = np.hstack((rgb_np, im_np))
-                depth_np = np.hstack((depth_np, depth.float().detach().permute(1, 2, 0).cpu().numpy()))
+                depth_np = np.hstack((depth_np, view_depth_np))
 
         # NOTE: Compute invisibility
         invisibility_np = 1 - opacity_np
@@ -828,21 +844,13 @@ class SplaTAM:
         for i in range(int(360 / hfov)):
             view_c2w_tmp = rot_axis(view_c2w, 'y', np.deg2rad(hfov*i))
             view_w2c_tmp = np.linalg.inv(view_c2w_tmp)
-            scene_data, scene_depth_data = get_rendervars(self.params, view_w2c_tmp)
-            im, depth, opacity, _, = render(view_w2c_tmp, look_around_k, scene_data, scene_depth_data, look_around_cfg, scale_modifier)
-            im_np = (
-                (torch.clamp(im, min=0, max=1.0) * 255)
-                .byte()
-                .permute(1, 2, 0)
-                .contiguous()
-                .cpu()
-                .numpy()
-            )
+            im_np, view_opacity_np, view_depth_np = self.__render_look_around_view(
+                view_c2w_tmp, view_w2c_tmp, look_around_k, look_around_cfg, scale_modifier)
             if i == 0:
-                opacity_np = opacity[0, :, :].detach().cpu().numpy()
+                opacity_np = view_opacity_np
                 rgb_np = im_np.copy()
             else:
-                opacity_np = np.hstack((opacity_np, opacity[0, :, :].detach().cpu().numpy()))
+                opacity_np = np.hstack((opacity_np, view_opacity_np))
                 rgb_np = np.hstack((rgb_np, im_np))
 
         # NOTE: Compute invisibility

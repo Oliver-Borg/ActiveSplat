@@ -105,6 +105,8 @@ planner_timing_recorder = TimingRecorder('planner_timing.csv')
 # NOTE: VGGT-Omega's predicted pose of each window frame relative to the current frame, against the true poses
 pose_error_recorder = CsvRecorder('pose_errors.csv', ['step', 'frame', 'window_size', 'rot_err_deg', 'trans_err_m',
                                                       'trans_dir_err_deg', 'gt_baseline_m', 'scale'])
+# NOTE: oracle planner runs: how much of the ground-truth surface the sensor has seen after each frame
+oracle_coverage_recorder = CsvRecorder('oracle_coverage.csv', ['step', 'new_samples', 'seen_samples', 'seen_fraction'])
 
 class GlobalState(Enum):
     REPLAY = 'REPLAY'

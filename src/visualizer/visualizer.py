@@ -27,9 +27,10 @@ from mapper import get_mapper, MapperState, GaussianColorType, MapperType
 from mapper.splatam.utils.graphics_utils import fov2focal
 from utils.gui_utils import OPENCV_TO_OPENGL, GaussianPacket, PoseChangeType, vfov_to_hfov, create_frustum, rgbd_to_pointcloud, pose_to_matrix, matrix_to_pose, rotation_matrix_from_vectors, c2w_topdown_to_world, c2w_world_to_topdown, is_pose_changed, get_horizon_bound_topdown, update_traj, config_topdown_info, visualize_agent, translations_world_to_topdown
 from utils.logging_utils import Log
-from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder
+from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder
 from utils.camera_utils import Camera
 from dataloader.dataloader import HabitatDataset
+from oracle import OracleScene, observable_cache_path, load_observable
 
 from scripts.nodes import frame, TURN, SPEED,\
     GetDatasetConfig, GetDatasetConfigResponse, GetDatasetConfigRequest,\
@@ -151,6 +152,8 @@ class Visualizer:
         self.__traj_info['cam_centers'] = []
         self.__traj_info['line_colormap'] = plt.get_cmap('cool')
         self.__traj_info['norm_factor'] = 0.5
+        self.__config_planner = config['planner']
+        self.__config_dataset = config['dataset']
         self.__agent_foot_adjust = config['planner']['agent_foot_adjust']
         if self.scene_id == 'YmJkqBEsHnH':
             self.__agent_foot_adjust = 0.15 # NOTE: Special case for YmJkqBEsHnH
@@ -292,6 +295,8 @@ class Visualizer:
             self.q_main2vis,
             self.__results_dir,
             step_num)
+        if self.__oracle is not None:
+            self.__mapper.set_oracle(self.__oracle)
         
         # Runtime data
         if self.__save_runtime_data:
@@ -354,6 +359,8 @@ class Visualizer:
         os.makedirs(self.__results_dir, exist_ok=True)
         timing_recorder.open(self.__results_dir)
         pose_error_recorder.open(self.__results_dir)
+        oracle_coverage_recorder.open(self.__results_dir)
+        self.__oracle = None
         self.__pose_data_type = PoseDataType(self.__dataset_config.pose_data_type)
         self.__height_direction = (self.__dataset_config.height_direction // 2, (self.__dataset_config.height_direction % 2) * 2 - 1)
         
@@ -388,8 +395,23 @@ class Visualizer:
             scene_mesh, self.__bbox_visualize = load_scene_mesh(
                 self.__dataset_config.scene_mesh_url,
                 self.__scene_mesh_transform)
+            oracle_config = self.__config_planner.get('oracle', {'mode': 'native'})
+            if oracle_config['mode'] == 'info':
+                # NOTE: the oracle only informs where the planner looks for unseen surface; the Gaussian mapper never receives the mesh
+                self.__oracle = OracleScene.from_dataset_config(
+                    self.__dataset_config.scene_mesh_url, self.__scene_mesh_transform,
+                    voxel_size=oracle_config.get('voxel_size', 0.05), sample_spacing=oracle_config.get('sample_spacing', 0.02))
+                observable_path = observable_cache_path(oracle_config.get('cache_root', os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data')),
+                                                        self.__config_dataset['format'], self.scene_id if self.scene_id != 'None' else self.__config_dataset['scene_id'])
+                # NOTE: surface no camera position can ever see would only attract the planner to unreachable "unseen" regions
+                self.__oracle.restrict_to(load_observable(observable_path, self.__oracle, float(self.__depth_limit[1])))
+                Log(f'Oracle planner: {len(self.__oracle.points)} surface samples', tag=PROJECT_NAME)
+            elif oracle_config['mode'] != 'native':
+                raise ValueError(f"Unknown planner.oracle.mode: {oracle_config['mode']}")
         else:
             scene_mesh = None
+            if self.__config_planner.get('oracle', {'mode': 'native'})['mode'] != 'native':
+                raise ValueError('The oracle planner needs the scene mesh (scene_mesh_url does not exist)')
             self.__bbox_visualize = np.array([
                 [self.__dataset_config.scene_bound_min.x, self.__dataset_config.scene_bound_max.x],
                 [self.__dataset_config.scene_bound_min.y, self.__dataset_config.scene_bound_max.y],
@@ -898,6 +920,13 @@ class Visualizer:
                     frame_current['frame_id'] = frame_id
                     frame_last_received = frame_current.copy()
                     self.__traj_info["step_times"] = frame_id
+                    if self.__oracle is not None:
+                        timing_oracle = start_timing(use_cuda=False)
+                        new_samples = self.__oracle.observe(
+                            frame_current['c2w'].detach().cpu().numpy().astype(np.float64) @ OPENCV_TO_OPENGL, self.__rgbd_sensor.intrinsics,
+                            self.__rgbd_sensor.width, self.__rgbd_sensor.height, self.__depth_limit[0], self.__depth_limit[1])
+                        oracle_coverage_recorder.write_row([frame_id, new_samples, self.__oracle.seen_count, f'{self.__oracle.coverage():.5f}'])
+                        timing_recorder.record('oracle_observe', frame_id, end_timing(*timing_oracle, use_cuda=False))
                 assert frame_id is not None, 'Initialize failed'
             else:
                 frame_current = None
