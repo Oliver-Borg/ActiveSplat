@@ -48,17 +48,17 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 ## Work items
 
 ### Phase 1: shared oracle pieces
-- [ ] `OracleScene`: mesh load, raycasting scene, voxel grid, `observe()`, `look_around_view()`
-- [ ] Unit test: oracle depth vs recorded sensor depth for a few frames of an existing run (validates frames and conventions)
-- [ ] Observable-surface precompute (`scripts/oracle/precompute_observable.py`), cached per scene under `data/oracle/`
-- [ ] Coverage scorer for any run (`scripts/oracle/coverage.py`): coverage-vs-step CSV from `actions.txt`
+- [x] `OracleScene`: mesh load, raycasting scene, voxel grid, `observe()`, `look_around_view()`
+- [x] Unit test: oracle depth vs recorded sensor depth for a few frames of an existing run (validates frames and conventions)
+- [x] Observable-surface precompute (`scripts/oracle/precompute_observable.py`), cached per scene under `data/oracle/`
+- [x] Coverage scorer for any run (`scripts/oracle/coverage.py`): coverage-vs-step CSV from `actions.txt`
 
 ### Phase 2: Tier 2, oracle-info planner
-- [ ] Config block `planner.oracle` and `config/datasets/*_oracle_info.json`
-- [ ] Mapper look-around hook (oracle observed-mask + mesh depth replace rendered opacity + depth)
-- [ ] Visualizer: update observed voxels on every received frame
-- [ ] Log oracle coverage per step to `oracle_coverage.csv` during the run
-- [ ] Smoke test on one MP3D scene (check it explores, compare steps to native)
+- [x] Config block `planner.oracle` and `config/datasets/*_oracle_info.json`
+- [x] Mapper look-around hook (oracle observed-mask + mesh depth replace rendered opacity + depth)
+- [x] Visualizer: update observed voxels on every received frame
+- [x] Log oracle coverage per step to `oracle_coverage.csv` during the run
+- [x] Smoke test on one MP3D scene (300 steps of gZ6f7yhEvPG: runs end to end, diverges from native at step 107; coverage 60.8 % vs native 71.5 % at step 300, a single short run, so not conclusive)
 - [ ] Runs on the 4 MP3D scenes at high resolution
 
 ### Phase 3: Oracle tour
@@ -80,6 +80,15 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [ ] Tier 3: oracle greedy NBV with free candidate poses on the GT navmesh
 - [ ] GT navmesh for navigation (`planner.oracle.navigation: gt_navmesh`)
 - [ ] View-count / grazing-angle requirement in the oracle objective (image quality, not just coverage)
+
+## Implementation notes
+
+- Frames: the simulator world frame is the frame of `dataset.get_frame()['c2w']` and of the Gaussians. `scene_mesh_transform`
+  gives the evaluation/visualisation frame, which is that frame with y and z negated, so `oracle.load_mesh` undoes it. Camera poses
+  for the oracle are OpenCV c2w = `dataset c2w @ OPENCV_TO_OPENGL`. Check: mesh depth vs sensor depth, median error 0.8 cm.
+- Range: the oracle uses `dataset.far` (4 m, what the mapper uses), not the simulator sensor's 10 m.
+- The oracle needs `data/oracle/<format>_<scene>_observable.npz` (run `scripts/oracle/precompute_observable.py` first).
+- Cost: `observe()` about 65 ms per frame and a 360 look-around about 10-40 ms per node on an idle machine; both slower under load.
 
 ## Risks and notes
 
