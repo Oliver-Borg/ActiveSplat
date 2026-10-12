@@ -27,7 +27,7 @@ from mapper import get_mapper, MapperState, GaussianColorType, MapperType
 from mapper.splatam.utils.graphics_utils import fov2focal
 from utils.gui_utils import OPENCV_TO_OPENGL, GaussianPacket, PoseChangeType, vfov_to_hfov, create_frustum, rgbd_to_pointcloud, pose_to_matrix, matrix_to_pose, rotation_matrix_from_vectors, c2w_topdown_to_world, c2w_world_to_topdown, is_pose_changed, get_horizon_bound_topdown, update_traj, config_topdown_info, visualize_agent, translations_world_to_topdown
 from utils.logging_utils import Log
-from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState
+from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder
 from utils.camera_utils import Camera
 from dataloader.dataloader import HabitatDataset
 
@@ -349,6 +349,8 @@ class Visualizer:
             
         self.__results_dir = self.__dataset_config.results_dir
         os.makedirs(self.__results_dir, exist_ok=True)
+        timing_recorder.open(self.__results_dir)
+        pose_error_recorder.open(self.__results_dir)
         self.__pose_data_type = PoseDataType(self.__dataset_config.pose_data_type)
         self.__height_direction = (self.__dataset_config.height_direction // 2, (self.__dataset_config.height_direction % 2) * 2 - 1)
         
@@ -912,7 +914,10 @@ class Visualizer:
                     self.__high_loss_samples_pose_pub.publish(pose)
             else:
                 mapper_state = MapperState.IDLE
-            Log(f'Mapper run used {end_timing(*timing_mapper_run):.2f} ms')
+            mapper_run_ms = end_timing(*timing_mapper_run)
+            if frame_current is not None:
+                timing_recorder.record('mapper', frame_id, mapper_run_ms)
+            Log(f'Mapper run used {mapper_run_ms:.2f} ms')
                 
             if self.__save_runtime_data and ((frame_id % 100 == 0 and frame_id > 0)):
                 self.__save_current_data_callback()
@@ -1737,6 +1742,8 @@ class Visualizer:
                     break
                 apply_movement_flag = self.__local_dataset_twist is not None
                 apply_movement_result = False
+                # NOTE: Capture = simulator step + RGBD sensor render
+                timing_capture = start_timing(use_cuda=False)
                 if apply_movement_flag:
                     apply_movement_result = self.__local_dataset.apply_movement(self.__local_dataset_twist)
                     self.__local_dataset_twist = None
@@ -1744,6 +1751,7 @@ class Visualizer:
                 self.__local_dataset_label.text = f'Scene: {self.scene_id}\tStep: {step_times}/{step_num}'
                 Log(f"Scene: {self.scene_id} Step:{step_times}/{step_num}")
                 frame_numpy = self.__local_dataset.get_frame()
+                timing_recorder.record('capture', step_times, end_timing(*timing_capture, use_cuda=False))
                 frame_c2w = frame_numpy['c2w']
                 pose_change_type = self.__is_pose_changed(frame_c2w)
                 if pose_change_type != PoseChangeType.NONE:

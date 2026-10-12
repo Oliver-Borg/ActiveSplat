@@ -29,7 +29,7 @@ from utils.logging_utils import Log
 from utils.gui_utils import GaussianPacket
 from utils.camera_utils import Camera
 from utils.pose_utils import mat_to_q_pos, rot_axis
-from utils import start_timing, end_timing, OPENCV_TO_OPENGL
+from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder
 
 @dataclass
 class sample():
@@ -489,7 +489,9 @@ class SplaTAM:
             self.mapping_iter_time_sum += iter_end_time - iter_start_time
             self.mapping_iter_time_count += 1
         if iter_per_frame > 0:
-            Log(f'Mapping Iteration Time: {end_timing(*timing_mapping):.2f} ms')
+            mapping_ms = end_timing(*timing_mapping)
+            timing_recorder.record('optimise', cur_frame_id, mapping_ms)
+            Log(f'Mapping Iteration Time: {mapping_ms:.2f} ms')
             progress_bar.close()
             # Update the runtime numbers
             mapping_end_time = time.time()
