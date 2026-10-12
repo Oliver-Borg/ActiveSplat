@@ -135,6 +135,9 @@ def load_scene_mesh(scene_mesh_url:str, transform_matrix:np.ndarray) -> Tuple[o3
     
     scene_mesh_visual = scene_mesh_trimesh.visual
     if isinstance(scene_mesh_visual, visual.TextureVisuals):
+        # NOTE: Wrap tiled UVs into [0, 1), otherwise trimesh's uv_to_color can index past the texture edge
+        if scene_mesh_visual.uv is not None:
+            scene_mesh_visual.uv = scene_mesh_visual.uv % 1.0
         scene_mesh_visual = scene_mesh_visual.to_color()
     scene_mesh = o3d.geometry.TriangleMesh(
         o3d.utility.Vector3dVector(scene_mesh_trimesh.vertices),
