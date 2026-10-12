@@ -84,15 +84,15 @@ class OracleScene:
             self.restrict_to(self.__observable)
 
     def visible_samples(self, c2w:np.ndarray, intrinsics:np.ndarray, width:int, height:int, near:float, far:float,
-                        sample_mask:np.ndarray=None) -> np.ndarray:
+                        candidates:np.ndarray=None) -> np.ndarray:
         '''
         Indices of surface samples a camera at c2w (OpenCV) would see: in range, in the image and not occluded.
-        sample_mask (bool per sample) restricts the test to a subset of the samples.
+        candidates are the sample indices to test (default: every sample within range); pass the in-range members of a
+        subset, found with a k-d tree over just that subset, to score many views against a subsample cheaply.
         '''
         position, rotation = c2w[:3, 3], c2w[:3, :3]
-        candidates = np.asarray(self.__tree.query_ball_point(position, far * 1.05, return_sorted=False), dtype=np.int64)
-        if sample_mask is not None:
-            candidates = candidates[sample_mask[candidates]]
+        if candidates is None:
+            candidates = np.asarray(self.__tree.query_ball_point(position, far * 1.05, return_sorted=False), dtype=np.int64)
         if len(candidates) == 0:
             return candidates
         offsets = self.points[candidates] - position.astype(np.float32)

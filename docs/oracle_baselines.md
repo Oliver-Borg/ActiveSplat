@@ -62,12 +62,12 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [ ] Runs on the 4 MP3D scenes at high resolution
 
 ### Phase 3: Oracle tour
-- [ ] Candidate viewpoints on the navmesh (start island): grid x yaw x tilt
-- [ ] Visibility matrix (observable points x candidates), chunked raycasting
-- [ ] Greedy weighted set cover with a step budget
-- [ ] Viewpoint ordering by geodesic distance (nearest neighbour + 2-opt)
-- [ ] Path + alignment to discrete actions (`actions.txt`)
-- [ ] Replay through ActiveSplat (mapper replay mode) and evaluate
+- [x] Candidate viewpoints on the navmesh (start island): grid x yaw x tilt
+- [x] Visibility matrix (observable points x candidates), chunked raycasting
+- [x] Greedy lazy set cover to a target coverage (no step budget yet: the tour is cut with `--max_steps`)
+- [x] Viewpoint ordering by geodesic distance (nearest neighbour + 2-opt)
+- [x] Path + alignment to discrete actions (`actions.txt`)
+- [x] Replay through ActiveSplat (mapper replay mode) and evaluate (`mode:=REPLAY` loaded the actions but never used them; implemented in the visualizer's dataset thread)
 - [ ] Runs on the 4 MP3D scenes
 
 ### Phase 4: comparison and baselines
@@ -89,6 +89,26 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - Range: the oracle uses `dataset.far` (4 m, what the mapper uses), not the simulator sensor's 10 m.
 - The oracle needs `data/oracle/<format>_<scene>_observable.npz` (run `scripts/oracle/precompute_observable.py` first).
 - Cost: `observe()` about 65 ms per frame and a 360 look-around about 10-40 ms per node on an idle machine; both slower under load.
+
+## First results (gZ6f7yhEvPG only, one run each, so indicative)
+
+| steps | tour | native (1000-step run) |
+|---|---|---|
+| 100 | 45.1 % | 31.6 % |
+| 300 | 79.3 % | 71.5 % |
+| 500 | 89.4 % | 86.4 % |
+| 700 | 93.5 % | 87.5 % |
+| 964 | 98.7 % | 89.2 % |
+
+Observable-surface coverage by the sensor; the tour is 964 actions and 22.4 m (native: 16.6 m in 963 steps). Image metrics on the
+trajectory views: PSNR 19.6 vs 17.4, SSIM 0.749 vs 0.725, LPIPS 0.267 vs 0.257, mapped-pixel PSNR 24.0 vs 24.9: the tour
+covers more of the scene, while the quality of what is mapped is similar. `eval_actions` completion ratio 97.7 % for the tour.
+
+## Tour planner notes
+
+- 15 s end to end (was over 40 min unfinished): k-d tree over the target subsample, O(1) 2-opt moves, geodesics per distinct position.
+- Camera pitches -30/0/+30 deg are candidates (without them the cover stalls at 77.5 %); views at one position become one sweep.
+- Execution uses habitat's greedy geodesic follower; 60 % of the actions are still turns, so heading-aware ordering is a next step.
 
 ## Risks and notes
 
