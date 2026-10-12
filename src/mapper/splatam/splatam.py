@@ -75,6 +75,19 @@ def get_pointcloud(color, depth, intrinsics, w2c, transform_pts=True,
         return point_cld
 
 
+def get_seed_pointcloud(color, seed_depth, intrinsics, w2c, mask, seeder):
+    '''
+    Point cloud for new Gaussians from seed_depth (e.g. VGGT-Omega) instead of sensor depth.
+    Gaussian scales come from the k nearest neighbours in the frame's whole seeded point cloud, since the
+    projective depth/focal estimate assumes sensor depth. mask: (H*W,) pixels to seed.
+    '''
+    all_pt_cld = get_pointcloud(color, seed_depth, intrinsics, w2c)
+    valid = seed_depth[0].reshape(-1) > 0
+    mask = mask & valid
+    mean3_sq_dist = seeder.knn_mean_sq_dist(all_pt_cld[valid, :3], mask[valid])
+    return all_pt_cld[mask], mean3_sq_dist
+
+
 def initialize_params(init_pt_cld, num_frames, mean3_sq_dist, gaussian_distribution):
     num_pts = init_pt_cld.shape[0]
     means3D = init_pt_cld[:, :3] # [num_gaussians, 3]
@@ -330,7 +343,7 @@ def initialize_new_params(new_pt_cld, mean3_sq_dist, gaussian_distribution):
 
 
 def add_new_gaussians(params, variables, curr_data, sil_thres, 
-                      time_idx, mean_sq_dist_method, gaussian_distribution):
+                      time_idx, mean_sq_dist_method, gaussian_distribution, seeder=None):
     # Silhouette Rendering
     transformed_gaussians = transform_to_frame(params, time_idx, gaussians_grad=False, camera_grad=False)
     depth_sil_rendervar = transformed_params2depthplussilhouette(params, curr_data['w2c'],
@@ -363,9 +376,16 @@ def add_new_gaussians(params, variables, curr_data, sil_thres,
         curr_w2c[:3, 3] = curr_cam_tran
         valid_depth_mask = (curr_data['depth'][0, :, :] > 0)
         non_presence_mask = non_presence_mask & valid_depth_mask.reshape(-1)
-        new_pt_cld, mean3_sq_dist = get_pointcloud(curr_data['im'], curr_data['depth'], curr_data['intrinsics'], 
-                                    curr_w2c, mask=non_presence_mask, compute_mean_sq_dist=True,
-                                    mean_sq_dist_method=mean_sq_dist_method)
+        if seeder is not None:
+            # NOTE: where to add Gaussians is still decided with sensor depth above; only their positions and scales change
+            new_pt_cld, mean3_sq_dist = get_seed_pointcloud(curr_data['im'], curr_data['seed_depth'], curr_data['intrinsics'],
+                                                            curr_w2c, non_presence_mask, seeder)
+        else:
+            new_pt_cld, mean3_sq_dist = get_pointcloud(curr_data['im'], curr_data['depth'], curr_data['intrinsics'], 
+                                        curr_w2c, mask=non_presence_mask, compute_mean_sq_dist=True,
+                                        mean_sq_dist_method=mean_sq_dist_method)
+        if new_pt_cld.shape[0] == 0:
+            return params, variables
         new_params = initialize_new_params(new_pt_cld, mean3_sq_dist, gaussian_distribution)
         for k, v in new_params.items():
             params[k] = torch.nn.Parameter(torch.cat((params[k], v), dim=0).requires_grad_(True))

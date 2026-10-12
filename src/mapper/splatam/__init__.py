@@ -22,7 +22,7 @@ from mapper.splatam.utils.slam_external import build_rotation, prune_gaussians, 
 from mapper.splatam.utils.recon_helpers import setup_camera
 from mapper.splatam.utils.keyframe_selection import keyframe_selection_overlap
 from mapper.splatam.utils.eval_helpers import report_progress
-from mapper.splatam.splatam import get_loss, initialize_optimizer, initialize_params, get_pointcloud, add_new_gaussians, render, get_rendervars
+from mapper.splatam.splatam import get_loss, initialize_optimizer, initialize_params, get_pointcloud, get_seed_pointcloud, add_new_gaussians, render, get_rendervars
 
 from dataloader import RGBDSensor, compute_intrinsics
 from utils.logging_utils import Log
@@ -92,6 +92,15 @@ class SplaTAM:
         self.__mapping_window_size = config['mapper']['mapping_window_size']
         self.__mapping_iters = config['mapper']['mapping_iters']
         self.__cluster_invisibility_threshold = config['mapper']['cluster_invisibility_threshold']
+        
+        # NOTE: Where new Gaussians get their positions and scales: 'depth' (sensor depth, SplaTAM default) or 'vggt_omega'
+        seeding_config = config['mapper'].get('gaussian_seeding', {'method': 'depth'})
+        self.__seeder = None
+        if seeding_config['method'] == 'vggt_omega':
+            from mapper.vggt_omega import VGGTOmegaSeeder
+            self.__seeder = VGGTOmegaSeeder(seeding_config['vggt_omega'])
+        elif seeding_config['method'] != 'depth':
+            raise ValueError(f"Unknown gaussian_seeding method: {seeding_config['method']}")
         
         self.__mapping_idx = None
         self.__tracking_idx = 0
@@ -251,6 +260,34 @@ class SplaTAM:
             
         return high_loss_samples_pose_c2w
     
+    def __get_seed_depth(self, densify_color:torch.Tensor, densify_depth:torch.Tensor, cur_frame_id:int) -> torch.Tensor:
+        # NOTE: VGGT-Omega sees the current frame together with the most recent keyframes
+        num_keyframes = self.__seeder.get_window_size() - 1
+        window_keyframes = self.keyframe_list[-num_keyframes:] if num_keyframes > 0 else []
+        window_colors = [
+            keyframe['color'] if keyframe['color'].shape[1:] == densify_color.shape[1:] else
+            F.interpolate(keyframe['color'][None], size=densify_color.shape[1:], mode='bilinear', align_corners=False)[0]
+            for keyframe in window_keyframes] + [densify_color]
+        images = (torch.stack(window_colors).permute(0, 2, 3, 1).clamp(0, 1) * 255).round().byte().cpu().numpy()
+        seed_depth, scale, response = self.__seeder.metric_depth(images, densify_depth)
+        timing_recorder.record('vggt_omega', cur_frame_id, response['ms'])
+        
+        # NOTE: Log VGGT-Omega's pose errors; poses here are the simulator's (they are never optimised), so they are ground truth.
+        # A window of only the current frame (e.g. frame 0, before the camera params exist) has no pairs to compare.
+        if not window_keyframes:
+            return seed_depth
+        with torch.no_grad():
+            curr_w2c = torch.eye(4).cuda().float()
+            curr_w2c[:3, :3] = build_rotation(F.normalize(self.params['cam_unnorm_rots'][..., cur_frame_id].detach()))
+            curr_w2c[:3, 3] = self.params['cam_trans'][..., cur_frame_id].detach()
+        window_ids = [keyframe['id'] for keyframe in window_keyframes] + [cur_frame_id]
+        gt_w2c = torch.stack([keyframe['est_w2c'] for keyframe in window_keyframes] + [curr_w2c]).cpu().numpy()
+        for row in self.__seeder.pose_errors(response['extrinsics'], gt_w2c, scale):
+            pose_error_recorder.write_row([
+                cur_frame_id, window_ids[row['pair_index']], len(window_ids), f"{row['rot_err_deg']:.4f}",
+                f"{row['trans_err_m']:.5f}", f"{row['trans_dir_err_deg']:.4f}", f"{row['gt_baseline_m']:.5f}", f'{scale:.6f}'])
+        return seed_depth
+    
     def __mapping(self, batch:Union[Dict[str, torch.Tensor], None], cur_frame_id:int=None):
         rgb_np, depth_np, c2w = self.__get_np_data(batch)
         if self.params is not None:
@@ -379,9 +416,16 @@ class SplaTAM:
             # Get Initial Point Cloud
             mask = (densify_depth > 0) # Mask out invalid depth values
             mask = mask.reshape(-1)
-            init_pt_cld, mean3_sq_dist = get_pointcloud(densify_color, densify_depth, self.densify_intrinsics, self.init_frame_w2c, 
-                                                        mask=mask, compute_mean_sq_dist=True, 
-                                                        mean_sq_dist_method=self.config['mean_sq_dist_method'])
+            if self.__seeder is not None:
+                seed_depth = self.__get_seed_depth(densify_color, densify_depth, cur_frame_id)
+                timing_seed_points = start_timing(use_cuda=False)
+                init_pt_cld, mean3_sq_dist = get_seed_pointcloud(densify_color, seed_depth, self.densify_intrinsics, self.init_frame_w2c,
+                                                                 mask, self.__seeder)
+                timing_recorder.record('seed_points', cur_frame_id, end_timing(*timing_seed_points, use_cuda=False))
+            else:
+                init_pt_cld, mean3_sq_dist = get_pointcloud(densify_color, densify_depth, self.densify_intrinsics, self.init_frame_w2c, 
+                                                            mask=mask, compute_mean_sq_dist=True, 
+                                                            mean_sq_dist_method=self.config['mean_sq_dist_method'])
             self.params, self.variables = initialize_params(init_pt_cld, self.__step_num, mean3_sq_dist, self.config['gaussian_distribution'])
             self.variables['scene_radius'] = torch.max(densify_depth)/self.config['scene_radius_depth_ratio']
         
@@ -410,11 +454,17 @@ class SplaTAM:
             if self.config['mapping']['add_new_gaussians'] and cur_frame_id > 0:
                 densify_curr_data = {'cam': self.densify_cam, 'im': densify_color, 'depth': densify_depth, 'id': cur_frame_id, 
                             'intrinsics': self.densify_intrinsics, 'w2c': self.first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
+                if self.__seeder is not None:
+                    densify_curr_data['seed_depth'] = self.__get_seed_depth(densify_color, densify_depth, cur_frame_id)
 
                 # Add new Gaussians to the scene based on the Silhouette
+                timing_seed_points = start_timing(use_cuda=False)
                 self.params, self.variables = add_new_gaussians(self.params, self.variables, densify_curr_data, 
                                                     self.config['mapping']['sil_thres'], cur_frame_id,
-                                                    self.config['mean_sq_dist_method'], self.config['gaussian_distribution'])
+                                                    self.config['mean_sq_dist_method'], self.config['gaussian_distribution'],
+                                                    seeder=self.__seeder)
+                if self.__seeder is not None:
+                    timing_recorder.record('seed_points', cur_frame_id, end_timing(*timing_seed_points, use_cuda=False))
             
             with torch.no_grad():
                 # Get the current estimated rotation & translation
@@ -544,6 +594,8 @@ class SplaTAM:
                 )
         
     def post_processing(self):
+        if self.__seeder is not None:
+            self.__seeder.close()
         # Compute Average Runtimes
         if self.mapping_iter_time_count == 0:
             self.mapping_iter_time_count = 1
