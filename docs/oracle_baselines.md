@@ -59,7 +59,7 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [x] Visualizer: update observed voxels on every received frame
 - [x] Log oracle coverage per step to `oracle_coverage.csv` during the run
 - [x] Smoke test on one MP3D scene (300 steps of gZ6f7yhEvPG: runs end to end, diverges from native at step 107; coverage 60.8 % vs native 71.5 % at step 300, a single short run, so not conclusive)
-- [x] Runs on the 4 MP3D scenes at high resolution (3 scenes at 1000 steps, see "Results on the other three scenes"; gZ6f7yhEvPG only has the 300-step smoke run, so it still needs a 1000-step run)
+- [x] Runs on the 4 MP3D scenes at high resolution, 1000 steps (see "Equal-budget results")
 
 ### Phase 3: Oracle tour
 - [x] Candidate viewpoints on the navmesh (start island): grid x yaw x tilt
@@ -68,7 +68,8 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [x] Viewpoint ordering by geodesic distance (nearest neighbour + 2-opt)
 - [x] Path + alignment to discrete actions (`actions.txt`)
 - [x] Replay through ActiveSplat (mapper replay mode) and evaluate (`mode:=REPLAY` loaded the actions but never used them; implemented in the visualizer's dataset thread)
-- [x] Runs on the 4 MP3D scenes (full-length tours; the gZ6f7yhEvPG one is in "First results")
+- [x] Runs on the 4 MP3D scenes (unbudgeted tours: coverage target 97 %, 964 to 1901 actions)
+- [x] Budgeted tour: greedy insertion by new surface per added action under a step budget, 2-opt, estimate calibrated against the executed length (`plan_tour.py --max_steps 1000`)
 
 ### Phase 4: comparison and baselines
 - [ ] Random-walk baseline
@@ -77,7 +78,7 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [ ] Dashboard tab with the coverage curves
 
 ### Later (not started)
-- [ ] Tier 3: oracle greedy NBV with free candidate poses on the GT navmesh
+- [x] Tier 3: oracle greedy NBV with free candidate poses on the GT navmesh (`scripts/oracle/plan_nbv.py`, replayed through ActiveSplat; see "Equal-budget results")
 - [ ] GT navmesh for navigation (`planner.oracle.navigation: gt_navmesh`)
 - [ ] View-count / grazing-angle requirement in the oracle objective (image quality, not just coverage)
 
@@ -104,40 +105,45 @@ Observable-surface coverage by the sensor; the tour is 964 actions and 22.4 m (n
 trajectory views: PSNR 19.6 vs 17.4, SSIM 0.749 vs 0.725, LPIPS 0.267 vs 0.257, mapped-pixel PSNR 24.0 vs 24.9: the tour
 covers more of the scene, while the quality of what is mapped is similar. `eval_actions` completion ratio 97.7 % for the tour.
 
-## Results on the other three scenes (one run each, so indicative)
+## Equal-budget results (1000 steps, one run each, so indicative)
 
-Observable-surface coverage (%) of the native planner, the oracle-info planner (1000 steps) and the oracle tour replayed in full
-(tour lengths: 1248, 1901, 1837 actions, so only the first 1000 are comparable with the others).
+All planners get 1000 actions. Native = ActiveSplat's planner, oracle-info = Tier 2, tour = budgeted tour, NBV = Tier 3. Coverage is the
+observable surface seen (%); AUC is the mean coverage over the 1000 steps; image metrics are PSNR / SSIM / LPIPS on the trajectory views.
 
-| scene | method | 100 | 300 | 500 | 1000 | final | path (m) |
-|---|---|---|---|---|---|---|---|
-| GdvgFV5R1Z5 | native | 53.6 | 70.1 | 78.2 | 86.7 | 86.7 | 68.4 |
-| | oracle-info | 53.6 | 69.9 | 78.9 | 92.9 | 92.9 | 28.8 |
-| | tour | 51.1 | 66.7 | 72.6 | 84.7 | 98.6 (1248) | 29.4 |
-| pLe4wQe7qrG | native | 23.9 | 30.9 | 42.1 | 83.1 | 83.1 | 14.4 |
-| | oracle-info | 23.1 | 47.1 | 52.3 | 85.4 | 85.4 | 21.0 |
-| | tour | 23.6 | 39.2 | 51.3 | 71.0 | 98.7 (1901) | 49.3 |
-| YmJkqBEsHnH | native | 21.4 | 39.7 | 52.1 | 62.5 | 62.5 | 22.8 |
-| | oracle-info | 21.4 | 32.6 | 57.6 | 81.7 | 81.7 | 21.5 |
-| | tour | 26.1 | 47.2 | 59.8 | 64.9 | 99.2 (1837) | 49.7 |
+| scene | method | 100 | 300 | 500 | 1000 | AUC | path (m) | PSNR / SSIM / LPIPS |
+|---|---|---|---|---|---|---|---|---|
+| gZ6f7yhEvPG | native | 31.6 | 58.9 | 86.9 | 94.3 | 72.1 | 22.6 | 17.6 / 0.718 / 0.271 |
+| | oracle-info | 30.6 | 60.8 | 86.7 | 95.7 | 71.2 | 19.0 | 17.8 / 0.712 / 0.288 |
+| | tour | 42.2 | 69.3 | 75.3 | 98.2 | 74.9 | 13.3 | 17.7 / 0.741 / 0.258 |
+| | NBV | 50.5 | 83.8 | 92.7 | 98.8 | 84.2 | 27.5 | 17.1 / 0.730 / 0.278 |
+| GdvgFV5R1Z5 | native | 53.6 | 70.1 | 78.1 | 92.8 | 73.8 | 25.0 | 25.2 / 0.777 / 0.213 |
+| | oracle-info | 53.6 | 69.9 | 78.9 | 92.9 | 74.0 | 28.8 | 24.2 / 0.780 / 0.220 |
+| | tour | 54.0 | 67.7 | 70.6 | 94.5 | 71.3 | 14.0 | 24.7 / 0.791 / 0.229 |
+| | NBV | 59.7 | 84.5 | 91.4 | 96.6 | 83.7 | 28.8 | 23.6 / 0.746 / 0.271 |
+| pLe4wQe7qrG | native | 23.9 | 30.9 | 42.1 | 83.1 | 45.6 | 14.4 | 26.0 / 0.785 / 0.252 |
+| | oracle-info | 23.1 | 47.1 | 52.3 | 85.4 | 54.4 | 21.0 | 25.6 / 0.769 / 0.273 |
+| | tour | 31.0 | 48.0 | 55.5 | 90.0 | 58.8 | 16.6 | 25.1 / 0.771 / 0.299 |
+| | NBV | 33.5 | 70.7 | 76.8 | 92.7 | 71.2 | 29.2 | 24.9 / 0.757 / 0.313 |
+| YmJkqBEsHnH | native | 21.4 | 39.7 | 52.1 | 62.5 | 46.2 | 22.8 | 15.3 / 0.644 / 0.326 |
+| | oracle-info | 21.4 | 32.6 | 57.6 | 81.7 | 49.7 | 21.5 | 19.7 / 0.765 / 0.244 |
+| | tour | 25.4 | 40.2 | 46.5 | 80.7 | 48.5 | 15.3 | 20.7 / 0.770 / 0.267 |
+| | NBV | 32.1 | 59.8 | 80.0 | 93.0 | 70.0 | 32.1 | 14.1 / 0.599 / 0.375 |
 
-Image metrics on the trajectory views (PSNR / SSIM / LPIPS; tours are scored over their full length, the others over 1000 steps):
-
-| scene | native | oracle-info | tour |
-|---|---|---|---|
-| GdvgFV5R1Z5 | 24.6 / 0.794 / 0.203 | 24.2 / 0.780 / 0.220 | 23.0 / 0.734 / 0.287 |
-| pLe4wQe7qrG | 26.0 / 0.785 / 0.252 | 25.6 / 0.769 / 0.273 | 24.4 / 0.741 / 0.312 |
-| YmJkqBEsHnH | 15.3 / 0.644 / 0.326 | 19.7 / 0.765 / 0.244 | 16.1 / 0.638 / 0.363 |
-
-- Oracle-info beats native at 1000 steps on all three scenes (+6.2, +2.3, +19.2 points) and clearly improves image quality on
-  YmJkqBEsHnH, where native leaves much unseen. Where native already covers most of the scene its image metrics are slightly better.
-- The tour only pays off when run to the end (about 99 % coverage), which takes 1248 to 1901 actions. Cut at 1000 steps it
-  is level with or behind native, and its image metrics are lower than native on two of the three scenes: coverage is not
-  image quality, and it takes the tour longer paths (up to 50 m) and many turns.
-- The new native rerun of gZ6f7yhEvPG reaches 31.6 / 58.9 / 86.9 / 94.3 % at 100 / 300 / 500 / 1000 steps (the first results
-  above used an older native run, which was weaker after step 500). Its trajectory metrics: PSNR 17.6, SSIM 0.718, LPIPS 0.271.
+- Tier 3 (NBV) has the best coverage curve on every scene (AUC 70 to 84 against 46 to 74 for native) and the best coverage at 1000
+  steps on all four. Oracle-info and the budgeted tour are in between: both beat native at 1000 steps on three scenes, but their
+  curves cross native's early on (the tour does its sweeps in route order, so it is slow to reach the first 70 %).
+- Coverage does not give better images. Native, or the tour/oracle-info, are as good or better in PSNR/SSIM/LPIPS on three scenes;
+  NBV is clearly worse on YmJkqBEsHnH (PSNR 14.1 against 15.3 native) despite 93 % coverage. A view that makes surface "seen" once is
+  not a view that gets it mapped well (see the view-count / grazing-angle item below).
+- Run-to-run noise is large. The two native runs of GdvgFV5R1Z5 differ by 6 points of coverage at 1000 steps (86.7 and 92.8 %), so
+  differences of a few points here are not conclusive; the native-with-seeds item in Phase 4 will put a number on it.
+- The earlier unbudgeted tour (97 % target, 964 to 1901 actions) reached 98.6 to 99.2 % observable coverage. Its image metrics were
+  below native on two of three scenes.
 
 ## Tour planner notes
+
+- Budgeted mode (`--max_steps N`): greedy insertion of the view with most new surface per added action (walking insertion cost + longer sweep + 1 entry turn), 2-opt reorder to free budget, repeat; then executed in the simulator and replanned with the cost estimate rescaled until the executed length is within 2 to 4 % of the budget (a tour that still overruns is cut). The estimate under-counts turns, so the scale lands around 0.3.
+- Tier 3 (`plan_nbv.py`): from the current pose, the candidate view with the highest (new surface, capped at what the remaining budget can reach) / (geodesic walking + turns + tilts) is chosen, using lazy evaluation over bounds, driven to with the greedy follower, and repeated. Myopic, closed loop; about 15 s to plan 1000 steps.
 
 - 15 s end to end (was over 40 min unfinished): k-d tree over the target subsample, O(1) 2-opt moves, geodesics per distinct position.
 - Camera pitches -30/0/+30 deg are candidates (without them the cover stalls at 77.5 %); views at one position become one sweep.

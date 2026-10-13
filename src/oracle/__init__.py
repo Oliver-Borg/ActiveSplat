@@ -144,14 +144,14 @@ class OracleScene:
         self.__voxel_seen[hidden[~observable_voxels[hidden]]] = True
         self.__observable = observable
 
-    def observe(self, c2w:np.ndarray, intrinsics:np.ndarray, width:int, height:int, near:float, far:float) -> int:
-        '''Marks the samples the sensor sees from this pose; returns how many were new.'''
+    def observe(self, c2w:np.ndarray, intrinsics:np.ndarray, width:int, height:int, near:float, far:float, return_indices:bool=False):
+        '''Marks the samples the sensor sees from this pose; returns how many were new (or, with return_indices, the indices of every visible sample).'''
         indices = self.visible_samples(c2w, intrinsics, width, height, near, far)
         new = int(np.count_nonzero(~self.seen[indices]))
         self.seen[indices] = True
         voxels = self.__sample_voxel[indices]
         self.__voxel_seen[voxels[voxels >= 0]] = True
-        return new
+        return indices if return_indices else new
 
     def look_around_view(self, c2w:np.ndarray, intrinsics:np.ndarray, width:int, height:int) -> Tuple[np.ndarray, np.ndarray]:
         '''
