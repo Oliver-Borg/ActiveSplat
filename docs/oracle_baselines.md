@@ -59,7 +59,7 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [x] Visualizer: update observed voxels on every received frame
 - [x] Log oracle coverage per step to `oracle_coverage.csv` during the run
 - [x] Smoke test on one MP3D scene (300 steps of gZ6f7yhEvPG: runs end to end, diverges from native at step 107; coverage 60.8 % vs native 71.5 % at step 300, a single short run, so not conclusive)
-- [ ] Runs on the 4 MP3D scenes at high resolution
+- [x] Runs on the 4 MP3D scenes at high resolution (3 scenes at 1000 steps, see "Results on the other three scenes"; gZ6f7yhEvPG only has the 300-step smoke run, so it still needs a 1000-step run)
 
 ### Phase 3: Oracle tour
 - [x] Candidate viewpoints on the navmesh (start island): grid x yaw x tilt
@@ -68,7 +68,7 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [x] Viewpoint ordering by geodesic distance (nearest neighbour + 2-opt)
 - [x] Path + alignment to discrete actions (`actions.txt`)
 - [x] Replay through ActiveSplat (mapper replay mode) and evaluate (`mode:=REPLAY` loaded the actions but never used them; implemented in the visualizer's dataset thread)
-- [ ] Runs on the 4 MP3D scenes
+- [x] Runs on the 4 MP3D scenes (full-length tours; the gZ6f7yhEvPG one is in "First results")
 
 ### Phase 4: comparison and baselines
 - [ ] Random-walk baseline
@@ -103,6 +103,39 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 Observable-surface coverage by the sensor; the tour is 964 actions and 22.4 m (native: 16.6 m in 963 steps). Image metrics on the
 trajectory views: PSNR 19.6 vs 17.4, SSIM 0.749 vs 0.725, LPIPS 0.267 vs 0.257, mapped-pixel PSNR 24.0 vs 24.9: the tour
 covers more of the scene, while the quality of what is mapped is similar. `eval_actions` completion ratio 97.7 % for the tour.
+
+## Results on the other three scenes (one run each, so indicative)
+
+Observable-surface coverage (%) of the native planner, the oracle-info planner (1000 steps) and the oracle tour replayed in full
+(tour lengths: 1248, 1901, 1837 actions, so only the first 1000 are comparable with the others).
+
+| scene | method | 100 | 300 | 500 | 1000 | final | path (m) |
+|---|---|---|---|---|---|---|---|
+| GdvgFV5R1Z5 | native | 53.6 | 70.1 | 78.2 | 86.7 | 86.7 | 68.4 |
+| | oracle-info | 53.6 | 69.9 | 78.9 | 92.9 | 92.9 | 28.8 |
+| | tour | 51.1 | 66.7 | 72.6 | 84.7 | 98.6 (1248) | 29.4 |
+| pLe4wQe7qrG | native | 23.9 | 30.9 | 42.1 | 83.1 | 83.1 | 14.4 |
+| | oracle-info | 23.1 | 47.1 | 52.3 | 85.4 | 85.4 | 21.0 |
+| | tour | 23.6 | 39.2 | 51.3 | 71.0 | 98.7 (1901) | 49.3 |
+| YmJkqBEsHnH | native | 21.4 | 39.7 | 52.1 | 62.5 | 62.5 | 22.8 |
+| | oracle-info | 21.4 | 32.6 | 57.6 | 81.7 | 81.7 | 21.5 |
+| | tour | 26.1 | 47.2 | 59.8 | 64.9 | 99.2 (1837) | 49.7 |
+
+Image metrics on the trajectory views (PSNR / SSIM / LPIPS; tours are scored over their full length, the others over 1000 steps):
+
+| scene | native | oracle-info | tour |
+|---|---|---|---|
+| GdvgFV5R1Z5 | 24.6 / 0.794 / 0.203 | 24.2 / 0.780 / 0.220 | 23.0 / 0.734 / 0.287 |
+| pLe4wQe7qrG | 26.0 / 0.785 / 0.252 | 25.6 / 0.769 / 0.273 | 24.4 / 0.741 / 0.312 |
+| YmJkqBEsHnH | 15.3 / 0.644 / 0.326 | 19.7 / 0.765 / 0.244 | 16.1 / 0.638 / 0.363 |
+
+- Oracle-info beats native at 1000 steps on all three scenes (+6.2, +2.3, +19.2 points) and clearly improves image quality on
+  YmJkqBEsHnH, where native leaves much unseen. Where native already covers most of the scene its image metrics are slightly better.
+- The tour only pays off when run to the end (about 99 % coverage), which takes 1248 to 1901 actions. Cut at 1000 steps it
+  is level with or behind native, and its image metrics are lower than native on two of the three scenes: coverage is not
+  image quality, and it takes the tour longer paths (up to 50 m) and many turns.
+- The new native rerun of gZ6f7yhEvPG reaches 31.6 / 58.9 / 86.9 / 94.3 % at 100 / 300 / 500 / 1000 steps (the first results
+  above used an older native run, which was weaker after step 500). Its trajectory metrics: PSNR 17.6, SSIM 0.718, LPIPS 0.271.
 
 ## Tour planner notes
 
