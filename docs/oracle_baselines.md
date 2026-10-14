@@ -72,15 +72,16 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [x] Budgeted tour: greedy insertion by new surface per added action under a step budget, 2-opt, estimate calibrated against the executed length (`plan_tour.py --max_steps 1000`)
 
 ### Phase 4: comparison and baselines
-- [ ] Random-walk baseline
-- [ ] Native planner repeated with several seeds (noise level)
-- [ ] Comparison script/table: coverage curves, AUC, steps-to-X %, path length, image metrics
-- [ ] Dashboard tab with the coverage curves
+- [x] Random-walk baseline (`scripts/oracle/random_walk.py`, replayed through ActiveSplat)
+- [x] Native planner repeated with several seeds (noise level): `ACTIVESPLAT_SEED`; 3 runs per scene, 2 on pLe4wQe7qrG (the third hung at launch and still has to be rerun)
+- [x] Comparison script/table (`scripts/oracle/compare.py`, output in `docs/oracle_results.md` and `docs/oracle_plots/`): coverage curves, AUC, steps-to-X %, path length, two-direction coverage, image metrics
+- [x] Dashboard tab with the coverage curves (Coverage tab; a run's method name is read from `<run>/label.txt`)
 
 ### Later (not started)
 - [x] Tier 3: oracle greedy NBV with free candidate poses on the GT navmesh (`scripts/oracle/plan_nbv.py`, replayed through ActiveSplat; see "Equal-budget results")
 - [ ] GT navmesh for navigation (`planner.oracle.navigation: gt_navmesh`)
-- [ ] View-count / grazing-angle requirement in the oracle objective (image quality, not just coverage)
+- [x] View-count requirement in Tier 3 (`plan_nbv.py --view_weight`: a second sighting from a direction 20° or more from the first is worth w new samples). Grazing-angle is not done.
+- [x] Heading-aware tour ordering (`plan_tour.py`, `--no_heading_order` turns it off)
 
 ## Implementation notes
 
@@ -139,6 +140,32 @@ observable surface seen (%); AUC is the mean coverage over the 1000 steps; image
   differences of a few points here are not conclusive; the native-with-seeds item in Phase 4 will put a number on it.
 - The earlier unbudgeted tour (97 % target, 964 to 1901 actions) reached 98.6 to 99.2 % observable coverage. Its image metrics were
   below native on two of three scenes.
+
+## Results with repeats, baselines and variants (1000 steps)
+
+Full per-scene tables: `docs/oracle_results.md`; coverage curves: `docs/oracle_plots/`. Mean over the four scenes (the ± there is the
+spread between scenes, not noise; per-scene tables show the spread over repeated runs):
+
+| method | cov@100 | cov@300 | cov@500 | cov@1000 | AUC | two directions | PSNR | novel PSNR | novel SSIM | novel LPIPS |
+|---|---|---|---|---|---|---|---|---|---|---|
+| random walk | 29.3 | 47.1 | 53.6 | 57.6 | 47.7 | 39.4 | 21.3 | 21.5 | 0.762 | 0.263 |
+| native | 32.6 | 51.4 | 64.4 | 83.4 | 59.0 | 58.5 | 21.0 | 19.9 | 0.705 | 0.303 |
+| oracle-info | 32.2 | 52.6 | 68.9 | 88.9 | 62.3 | 63.1 | 21.8 | 20.6 | 0.718 | 0.302 |
+| tour (heading order) | 38.4 | 55.7 | 62.9 | 92.6 | 64.5 | 70.2 | 21.4 | 20.6 | 0.705 | 0.320 |
+| NBV (Tier 3) | 44.0 | 74.7 | 85.2 | 95.3 | 77.2 | 74.2 | 19.9 | 19.4 | 0.668 | 0.346 |
+| NBV, view weight 1 | 43.4 | 66.5 | 82.0 | 94.2 | 73.3 | 79.0 | 20.6 | 19.9 | 0.692 | 0.331 |
+
+- Tier 3 is the strongest on coverage: it gets 80 % of the surface in about 400 steps on average, native in about 625. Weighting second looks
+  (w=1) trades about 1 point of final coverage and 4 points of AUC for 5 points more two-direction coverage and slightly better image metrics.
+  w=3 gives up too much exploration (AUC 65.5) for the same image gain.
+- Image metrics do not follow coverage. The random walk, which sees the least surface, has among the best trajectory and held-out-view
+  metrics: they are measured near where the agent has been, so they reward staying in places it has mapped well and do not measure how
+  much of the scene was explored. Read them as the quality of the mapped part only, alongside coverage.
+- Run-to-run noise of the native planner at 1000 steps is 0.3 to 6 points of coverage depending on the scene (standard deviation over 2 to 3 runs);
+  PSNR differs by 0.1 to 0.5. Differences smaller than that between single runs of the other methods are not meaningful.
+- The heading-aware order cuts the share of turns in the tour from 62 % to 49 % on gZ6f7yhEvPG and adds a little coverage (92.6 against 90.8 % at 1000 steps
+  on average) at the price of a longer path.
+- The first 100 steps of the native planner are identical between seeds (spread 0.0), so the noise only builds up later.
 
 ## Tour planner notes
 
