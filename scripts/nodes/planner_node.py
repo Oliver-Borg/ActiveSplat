@@ -1693,7 +1693,8 @@ class PlannerNode:
 
 if __name__ == '__main__':
     faulthandler.enable()
-    seed = 1
+    # NOTE: ACTIVESPLAT_SEED varies the planner's random choices between repeated runs (run-to-run noise); the default is unchanged
+    seed = int(os.environ.get('ACTIVESPLAT_SEED', 1))
     np.random.seed(seed)
     torch.manual_seed(seed)
 

@@ -126,6 +126,55 @@ def sweep_turns(views:list, turn_angle:float) -> float:
     gaps = np.diff(np.append(angles, angles[0] + 2 * np.pi))
     return float((2 * np.pi - gaps.max()) / turn_angle)
 
+def yaw_towards(start:np.ndarray, end:np.ndarray) -> float:
+    '''Agent yaw (0 looks along -z) that faces from start to end on the floor plane.'''
+    return float(np.arctan2(-(end[0] - start[0]), -(end[2] - start[2])))
+
+def heading_cost(order:list, views_at:dict, D:np.ndarray, positions:np.ndarray, start_yaw:float, turn_angle:float, tilt_angle:float) -> float:
+    '''
+    Actions of a tour with the agent's heading tracked: walking, turning to face each leg (straight-line bearing), and each position's
+    sweep entered from the arrival heading (sweep_order picks the direction) with its tilts.
+    '''
+    yaw, pitch, total, previous = start_yaw, 0.0, 0.0, order[0]
+    for index, node in enumerate(order):
+        if index > 0:
+            heading = yaw_towards(positions[previous], positions[node])
+            total += D[previous, node] + abs(wrap_angle(heading - yaw)) / turn_angle
+            yaw = heading
+        views = views_at.get(node)
+        if views:
+            for view_yaw, view_pitch in sweep_order([(v[0], v[1]) for v in views], yaw):
+                total += abs(wrap_angle(view_yaw - yaw)) / turn_angle + abs(view_pitch - pitch) / tilt_angle
+                yaw, pitch = view_yaw, view_pitch
+        previous = node
+    return float(total)
+
+def improve_heading(order:list, cost, passes:int=3) -> list:
+    '''Local search over the visiting order (start fixed first) on cost(order): segment reversal (2-opt) and moving one position (or-opt).'''
+    order, best = list(order), cost(order)
+    count = len(order)
+    for _ in range(passes):
+        improved = False
+        for i in range(1, count - 1):
+            for j in range(i + 1, count):
+                candidate = order[:i] + order[i:j + 1][::-1] + order[j + 1:]
+                value = cost(candidate)
+                if value < best - 1e-9:
+                    order, best, improved = candidate, value, True
+        for i in range(1, count):
+            node, rest = order[i], order[:i] + order[i + 1:]
+            for j in range(1, count):
+                if j == i:
+                    continue
+                candidate = rest[:j] + [node] + rest[j:]
+                value = cost(candidate)
+                if value < best - 1e-9:
+                    order, best, improved = candidate, value, True
+                    break
+        if not improved:
+            break
+    return order
+
 def geodesic(pathfinder, start:np.ndarray, end:np.ndarray) -> float:
     path = habitat_sim.ShortestPath()
     path.requested_start, path.requested_end = start, end
@@ -141,7 +190,7 @@ class OracleContext:
         self.turn_angle = float(np.deg2rad(dataset_config['agent_turn_angle']))
         self.tilt_angle = float(np.deg2rad(dataset_config['agent_tilt_angle']))
         self.near, self.far = float(self.config['dataset']['near']), float(self.config['dataset']['far'])
-        self.scene = make_oracle_scene(dataset_config)
+        self.scene = make_oracle_scene(dataset_config, second_look_degrees=float(getattr(args, 'second_look_degrees', 20.0)))
         self.observable = load_observable(observable_cache_path(args.cache_root, self.config['dataset']['format'], args.scene_id), self.scene, self.far)
         self.scene.restrict_to(self.observable)
         self.intrinsics = sensor_intrinsics(dataset_config)
@@ -149,6 +198,7 @@ class OracleContext:
         self.sensor_height = sensor_height(self.dataset)
         self.pathfinder = self.dataset._sim.pathfinder
         self.start_position = np.asarray(self.dataset._sim.get_agent_state().position)
+        self.start_yaw = agent_yaw(self.dataset._sim.get_agent_state())
 
         # NOTE: the planners work on a subsample of the observable samples to keep the visibility lists small
         rng = np.random.RandomState(args.seed)
@@ -157,6 +207,7 @@ class OracleContext:
         self.position_in_target = np.full(len(self.scene.points), -1, dtype=np.int64)
         self.position_in_target[self.target_ids] = np.arange(len(self.target_ids))
         self.covered = np.zeros(len(self.target_ids), dtype=bool)
+        self.view_weight = float(getattr(args, 'view_weight', 0.0))
         self.__score_views(args)
 
     def __score_views(self, args) -> None:
@@ -188,8 +239,22 @@ class OracleContext:
         self.scene.reset()
         self.covered[:] = False
 
-    def gain(self, view:int) -> int:
-        return int(np.count_nonzero(~self.covered[self.visible[view]]))
+    def gain(self, view:int) -> float:
+        '''
+        Surface samples the view would newly see, plus view_weight x the samples it would see a second time from a clearly different
+        direction (the oracle scene's multi-view rule), so that surface gets a second look only when that is worth the steps.
+        '''
+        samples = self.visible[view]
+        new = ~self.covered[samples]
+        gain = float(np.count_nonzero(new))
+        if self.view_weight > 0:
+            old = self.target_ids[samples[~new]]
+            old = old[~self.scene.multi[old]]
+            if len(old):
+                camera = self.positions[self.views[view]['position']] + np.array([0.0, self.sensor_height, 0.0])
+                cosine = np.einsum('ij,ij->i', self.scene.directions_to(old, camera), self.scene.first_direction[old].astype(np.float32))
+                gain += self.view_weight * float(np.count_nonzero(cosine < self.scene.second_look_cos))
+        return gain
 
     def observe(self) -> float:
         '''Observes from the simulator's current pose: updates the oracle scene and the covered subsample; returns the observable coverage.'''
@@ -199,13 +264,17 @@ class OracleContext:
         self.covered[targets[targets >= 0]] = True
         return self.scene.coverage()
 
+    def snapshot(self) -> tuple:
+        '''(observable coverage, multi-view coverage) of what has been observed so far.'''
+        return self.scene.coverage(), self.scene.multi_coverage()
+
     def save(self, out_dir:str, actions:list, rows:list, extra:dict) -> None:
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, 'actions.txt'), 'w') as f:
             f.write(''.join(f'{action}\n' for action in actions))
         with open(os.path.join(out_dir, 'tour_coverage.csv'), 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['step', 'coverage', 'path_length_m'])
+            writer.writerow(['step', 'coverage', 'path_length_m', 'coverage_multi'])
             writer.writerows(rows)
         with open(os.path.join(out_dir, 'tour.json'), 'w') as f:
             json.dump(extra, f, indent=2, default=float)
@@ -217,7 +286,9 @@ class Driver:
         self.context, self.max_steps, self.track_every = context, max_steps, track_every
         self.sim = context.dataset._sim
         self.actions, self.path_length = [], 0.0
-        self.rows = [(0, context.observe(), 0.0)]
+        context.observe()
+        coverage, multi = context.snapshot()
+        self.rows = [(0, coverage, 0.0, multi)]
         self.follower = self.sim.make_greedy_follower(0, goal_radius=context.forward_step, forward_key='move_forward', left_key='turn_left', right_key='turn_right')
 
     @property
@@ -233,7 +304,12 @@ class Driver:
         if action == FORWARD:
             self.path_length += float(np.linalg.norm(np.asarray(self.sim.get_agent_state().position) - before))
         if len(self.actions) % self.track_every == 0:
-            self.rows.append((len(self.actions), self.context.observe(), self.path_length))
+            self.record()
+
+    def record(self) -> None:
+        self.context.observe()
+        coverage, multi = self.context.snapshot()
+        self.rows.append((len(self.actions), coverage, self.path_length, multi))
 
     def pose(self) -> Tuple[np.ndarray, float, float]:
         state = self.sim.get_agent_state()
@@ -272,7 +348,7 @@ class Driver:
         context.observe()
 
     def finish(self) -> None:
-        self.rows.append((len(self.actions), self.context.observe(), self.path_length))
+        self.record()
 
 def add_common_arguments(parser) -> None:
     parser.add_argument('--config', type=str, required=True, help='dataset config (config/datasets/*.json)')
@@ -288,3 +364,5 @@ def add_common_arguments(parser) -> None:
     parser.add_argument('--max_steps', type=int, default=100000, help='step budget: no more than this many actions')
     parser.add_argument('--track_every', type=int, default=10, help='score coverage every n actions while executing (coverage.py scores every step)')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--view_weight', type=float, default=0.0, help='value of a second sighting from another direction, relative to a new sample (0: first sight only)')
+    parser.add_argument('--second_look_degrees', type=float, default=20.0, help='directions closer than this do not count as a second look')

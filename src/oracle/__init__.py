@@ -36,8 +36,9 @@ def pixel_rays(width:int, height:int, intrinsics:np.ndarray) -> np.ndarray:
 
 class OracleScene:
 
-    def __init__(self, mesh:trimesh.Trimesh, voxel_size:float=0.05, sample_spacing:float=0.02, seed:int=0) -> None:
+    def __init__(self, mesh:trimesh.Trimesh, voxel_size:float=0.05, sample_spacing:float=0.02, seed:int=0, second_look_degrees:float=20.0) -> None:
         self.voxel_size = voxel_size
+        self.second_look_cos = float(np.cos(np.deg2rad(second_look_degrees)))
         self.sample_spacing = sample_spacing
         self.mesh = mesh
         vertices = np.asarray(mesh.vertices, dtype=np.float32)
@@ -52,6 +53,11 @@ class OracleScene:
         self.normals = np.asarray(mesh.face_normals, dtype=np.float32)[face_index]
         self.__tree = cKDTree(self.points)
         self.seen = np.zeros(len(self.points), dtype=bool)
+        # NOTE: view diversity: the direction (sample to camera) of the first sighting, and whether a later sighting came from a direction
+        # at least second_look_degrees away from it ("multi"); a surface seen from two directions is mapped better than one seen once
+        self.has_direction = np.zeros(len(self.points), dtype=bool)
+        self.first_direction = np.zeros((len(self.points), 3), dtype=np.float16)
+        self.multi = np.zeros(len(self.points), dtype=bool)
 
         # NOTE: voxel grid over the same surface for fast "has the surface at this hit point been seen?" lookups
         self.__grid_min = vertices.min(axis=0) - 0.25
@@ -79,6 +85,8 @@ class OracleScene:
 
     def reset(self) -> None:
         self.seen[:] = False
+        self.has_direction[:] = False
+        self.multi[:] = False
         self.__voxel_seen[:] = False
         if self.__observable is not None:
             self.restrict_to(self.__observable)
@@ -149,9 +157,27 @@ class OracleScene:
         indices = self.visible_samples(c2w, intrinsics, width, height, near, far)
         new = int(np.count_nonzero(~self.seen[indices]))
         self.seen[indices] = True
+        self.__record_directions(indices, c2w[:3, 3])
         voxels = self.__sample_voxel[indices]
         self.__voxel_seen[voxels[voxels >= 0]] = True
         return indices if return_indices else new
+
+    def directions_to(self, indices:np.ndarray, position:np.ndarray) -> np.ndarray:
+        '''Unit vectors from the samples to a camera position.'''
+        offsets = position.astype(np.float32) - self.points[indices]
+        return offsets / np.maximum(np.linalg.norm(offsets, axis=1, keepdims=True), 1e-6)
+
+    def __record_directions(self, indices:np.ndarray, position:np.ndarray) -> None:
+        if len(indices) == 0:
+            return
+        directions = self.directions_to(indices, position)
+        known = self.has_direction[indices]
+        fresh = indices[~known]
+        self.first_direction[fresh] = directions[~known].astype(np.float16)
+        self.has_direction[fresh] = True
+        old = indices[known]
+        cosine = np.einsum('ij,ij->i', directions[known], self.first_direction[old].astype(np.float32))
+        self.multi[old[cosine < self.second_look_cos]] = True
 
     def look_around_view(self, c2w:np.ndarray, intrinsics:np.ndarray, width:int, height:int) -> Tuple[np.ndarray, np.ndarray]:
         '''
@@ -171,6 +197,14 @@ class OracleScene:
     @property
     def seen_count(self) -> int:
         return int(self.seen.sum())
+
+    def multi_coverage(self, target:np.ndarray=None) -> float:
+        '''Fraction of the target samples seen from at least two directions (second_look_degrees apart).'''
+        if target is None:
+            target = self.__observable
+        if target is None:
+            return float(self.multi.mean())
+        return float(self.multi[target].mean()) if target.any() else float('nan')
 
     def coverage(self, target:np.ndarray=None) -> float:
         '''Fraction of the target samples (default: the observable ones if restrict_to() was called, else all) that have been seen.'''

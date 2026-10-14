@@ -2,7 +2,8 @@
 # Exploration coverage of a run against the ground-truth mesh: replays <run>/actions.txt in the simulator, marks the surface
 # samples the sensor could see after every step (OracleScene.observe) and writes <run>/coverage.csv with the fraction of the
 # *observable* surface seen so far (see precompute_observable.py), plus the path length. Works for any planner, so native,
-# oracle and tour runs are scored with the same definition.
+# oracle and tour runs are scored with the same definition. coverage_multi is the fraction seen from two directions at least
+# OracleScene.second_look_cos apart (default 20 degrees).
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -47,10 +48,10 @@ if __name__ == '__main__':
             path_length += forward_step if actions[step - 1] == 1 else 0.0
         c2w = dataset.get_frame()['c2w'].astype(np.float64) @ OPENCV_TO_OPENGL
         scene.observe(c2w, intrinsics, width, height, near, far)
-        rows.append((step, scene.coverage(), path_length))
+        rows.append((step, scene.coverage(), path_length, scene.multi_coverage()))
     with open(out_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['step', 'coverage', 'path_length_m'])
+        writer.writerow(['step', 'coverage', 'path_length_m', 'coverage_multi'])
         writer.writerows(rows)
-    print(f'{args.run_dir}: {rows[-1][1] * 100:.1f} % of the observable surface seen after {len(actions)} steps, {path_length:.1f} m')
+    print(f'{args.run_dir}: {rows[-1][1] * 100:.1f} % of the observable surface seen after {len(actions)} steps ({rows[-1][3] * 100:.1f} % from two directions), {path_length:.1f} m')
     dataset.close()

@@ -142,6 +142,51 @@ def run_choices(results_dir:str) -> list:
             choices.append((name, name))
     return choices
 
+def coverage_choices(results_dir:str) -> list:
+    '''(label, folder) of the runs with a coverage.csv (scripts/oracle/coverage.py); the label is the scene, the method in label.txt and the start time.'''
+    choices = []
+    for name in list_runs(results_dir):
+        run_dir = os.path.join(results_dir, name)
+        if not os.path.isfile(os.path.join(run_dir, 'coverage.csv')):
+            continue
+        try:
+            with open(os.path.join(run_dir, 'config.json')) as f:
+                scene = json.load(f)['dataset']['scene_id']
+        except (OSError, ValueError, KeyError):
+            scene = '?'
+        method = 'unlabelled'
+        if os.path.isfile(os.path.join(run_dir, 'label.txt')):
+            with open(os.path.join(run_dir, 'label.txt')) as f:
+                method = f.read().strip() or method
+        choices.append((f'{scene} · {method} · {name[:16]}', name))
+    return choices
+
+def coverage_curves(results_dir:str, names:list) -> tuple:
+    '''(per-step coverage of the selected runs for a line plot, one summary row per run).'''
+    labels = {name: label for label, name in coverage_choices(results_dir)}
+    curves, rows = [], []
+    for name in names or []:
+        if name not in labels:
+            continue
+        coverage = pd.read_csv(os.path.join(results_dir, name, 'coverage.csv'))
+        label = labels[name]
+        curves.append(pd.DataFrame({'step': coverage['step'], 'observable surface seen (%)': coverage['coverage'] * 100, 'run': label}))
+        row = {'run': label, 'steps': int(coverage['step'].max()), 'final coverage (%)': round(float(coverage['coverage'].iloc[-1] * 100), 1),
+               'mean over steps (%)': round(float(coverage['coverage'].mean() * 100), 1), 'path (m)': round(float(coverage['path_length_m'].iloc[-1]), 1)}
+        if 'coverage_multi' in coverage:
+            row['two directions (%)'] = round(float(coverage['coverage_multi'].iloc[-1] * 100), 1)
+        for level in (80, 90):
+            reached = coverage.loc[coverage['coverage'] * 100 >= level, 'step']
+            row[f'steps to {level}%'] = int(reached.iloc[0]) if len(reached) else None
+        metrics_path = os.path.join(results_dir, name, 'image_metrics.json')
+        if os.path.isfile(metrics_path):
+            with open(metrics_path) as f:
+                trajectory = json.load(f)['trajectory']
+            row.update({'PSNR': round(trajectory['psnr'], 2), 'SSIM': round(trajectory['ssim'], 3), 'LPIPS': round(trajectory['lpips'], 3)})
+        rows.append(row)
+    empty = pd.DataFrame({'step': [], 'observable surface seen (%)': [], 'run': []})
+    return (pd.concat(curves, ignore_index=True) if curves else empty), pd.DataFrame(rows)
+
 def list_images(folder:str) -> list:
     if not os.path.isdir(folder):
         return []
@@ -806,6 +851,16 @@ def build_app(results_dir:str) -> gr.Blocks:
                 compare_button = gr.Button('Build comparison')
                 compare_table = gr.Dataframe(interactive=False, wrap=True)
 
+            with gr.Tab('Coverage'):
+                gr.Markdown('Exploration coverage over steps (the share of the observable ground-truth surface the sensor has seen), for runs scored with '
+                            '`scripts/oracle/coverage.py`. Name a run\'s method in `<run>/label.txt`; `scripts/oracle/compare.py` builds the full tables.')
+                coverage_select = gr.Dropdown(choices=coverage_choices(results_dir), multiselect=True, label='Runs to plot')
+                with gr.Row():
+                    coverage_button = gr.Button('Plot', variant='primary')
+                    coverage_refresh = gr.Button('Refresh run list')
+                coverage_plot = gr.LinePlot(x='step', y='observable surface seen (%)', color='run', title='Observable surface seen', height=420)
+                coverage_table = gr.Dataframe(interactive=False, wrap=True)
+
         run_outputs = [run_state, summary, actions_plot, model_view, frame_slider, rgb_image, depth_image, keyframe_image,
                        visited_image, free_image, trajectory_plot, eval_plot, *runtime_galleries, eval_markdown,
                        timing_markdown, timing_table, timing_steps_plot, timing_breakdown_plot,
@@ -828,6 +883,8 @@ def build_app(results_dir:str) -> gr.Blocks:
         frame_slider.change(show_frame, inputs=[run_state, frame_slider], outputs=[rgb_image, depth_image, keyframe_image])
         load_button.click(load_splat, inputs=run_state, outputs=[model_view, ply_file])
         compare_button.click(compare_runs, outputs=compare_table)
+        coverage_button.click(lambda names: coverage_curves(results_dir, names), inputs=coverage_select, outputs=[coverage_plot, coverage_table])
+        coverage_refresh.click(lambda: gr.update(choices=coverage_choices(results_dir)), outputs=coverage_select)
     return app
 
 if __name__ == '__main__':

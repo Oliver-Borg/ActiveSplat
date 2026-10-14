@@ -50,7 +50,7 @@ if __name__ == '__main__':
 
     context = OracleContext(args)
     driver = Driver(context, args.max_steps, args.track_every)
-    gain_bound = np.array([len(visible) for visible in context.visible], dtype=np.float64)
+    gain_bound = np.array([len(visible) for visible in context.visible], dtype=np.float64) * max(1.0, args.view_weight)
     begin = time.time()
     chosen = []
     while not driver.done:
@@ -67,9 +67,10 @@ if __name__ == '__main__':
             log(f'{len(chosen)} views, {len(driver.actions)} actions, coverage {driver.rows[-1][1] * 100:.1f} % ({time.time() - begin:.0f} s)')
     driver.finish()
     actions, rows = driver.actions, driver.rows
-    out_dir = args.out_dir or os.path.join(args.cache_root, 'oracle', f'nbv_{args.max_steps}', f"{context.config['dataset']['format']}_{args.scene_id}")
+    kind = f'nbv_{args.max_steps}' + (f'_w{args.view_weight:g}' if args.view_weight > 0 else '')
+    out_dir = args.out_dir or os.path.join(args.cache_root, 'oracle', kind, f"{context.config['dataset']['format']}_{args.scene_id}")
     context.save(out_dir, actions, rows, {'scene_id': args.scene_id, 'settings': vars(args), 'views': [
         {'position': context.positions[context.views[v]['position']].tolist(), 'yaw': context.views[v]['yaw'], 'pitch': context.views[v]['pitch']} for v in chosen]})
     log(f'{len(chosen)} views, {len(actions)} actions ({actions.count(FORWARD)} forward, {actions.count(TURN_LEFT) + actions.count(TURN_RIGHT)} turns, '
-        f'{actions.count(LOOK_UP) + actions.count(LOOK_DOWN)} tilts), final observable coverage {rows[-1][1] * 100:.1f} %, path {rows[-1][2]:.1f} m -> {out_dir}')
+        f'{actions.count(LOOK_UP) + actions.count(LOOK_DOWN)} tilts), final observable coverage {rows[-1][1] * 100:.1f} % (two directions: {rows[-1][3] * 100:.1f} %), path {rows[-1][2]:.1f} m -> {out_dir}')
     context.dataset.close()

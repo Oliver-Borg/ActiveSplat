@@ -5,7 +5,9 @@
 #   1. candidate views: navigable positions of the start floor x yaws x pitches, scored by which observable surface samples they see
 #   2. views are chosen either to reach a target coverage with the fewest views (greedy set cover; default), or, with --max_steps, to
 #      maximise coverage within a step budget (greedy insertion by newly covered surface per added action, then 2-opt; see below)
-#   3. views at the same position are merged into one rotation sweep; the positions are ordered by a nearest-neighbour tour
+#   3. (heading-aware ordering) after the distance-based order, a local search (2-opt, moving one position) lowers the action count with
+#      the agent's heading tracked: turning to face each leg and entering each sweep from the arrival heading. Without it ~60 % of actions were turns.
+#      views at the same position are merged into one rotation sweep; the positions are ordered by a nearest-neighbour tour
 #      improved with 2-opt on geodesic distance plus the sweep's turns (rotating dominates the step count at 10 deg per turn)
 #   4. the tour is executed in the simulator (closed loop, habitat's greedy geodesic follower) to get the discrete actions; coverage is
 #      tracked on the way, which gives the tour's coverage-vs-steps curve.
@@ -80,6 +82,8 @@ def plan_within_budget(context:OracleContext, D:np.ndarray, budget:float, args) 
         order = new_order
         if not grew and not improved:
             break
+    if not args.no_heading_order:
+        order = improve_heading(order, lambda candidate: heading_cost(candidate, views_at, D, context.positions, context.start_yaw, context.turn_angle, context.tilt_angle))
     return order, views_at
 
 def execute_plan(context:OracleContext, order:list, views_at:dict, max_steps:int, track_every:int) -> Driver:
@@ -96,13 +100,18 @@ def execute_plan(context:OracleContext, order:list, views_at:dict, max_steps:int
     driver.finish()
     return driver
 
+def row_at(rows:list, step:int) -> tuple:
+    return [row for row in rows if row[0] <= step][-1]
+
 def coverage_at(rows:list, step:int) -> float:
-    return [row[1] for row in rows if row[0] <= step][-1]
+    return row_at(rows, step)[1]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Plan an oracle viewpoint tour and write it as an actions file.')
     add_common_arguments(parser)
     parser.add_argument('--target', type=float, default=0.97, help='without a budget: fraction of the observable surface the selected views should cover')
+    parser.add_argument('--initial_scale', type=float, default=0.4, help='budgeted mode: first guess of executed actions per estimated action (the estimate undercounts turns); calibrated from there')
+    parser.add_argument('--no_heading_order', action='store_true', help='order positions by distance and sweep arcs only, ignoring the heading the agent arrives with')
     args = parser.parse_args()
 
     context = OracleContext(args)
@@ -112,7 +121,7 @@ if __name__ == '__main__':
     log(f'geodesic distances between {len(context.positions)} positions in {time.time() - begin:.0f} s')
 
     if budgeted:
-        scale, best = 1.0, None
+        scale, best = args.initial_scale, None
         for iteration in range(8):
             order, views_at = plan_within_budget(context, D, args.max_steps * scale, args)
             driver = execute_plan(context, order, views_at, 10 * args.max_steps, args.track_every)
@@ -131,7 +140,7 @@ if __name__ == '__main__':
         _, order, views_at, driver = best
         cut = args.max_steps
         actions = driver.actions[:cut]
-        rows = [row for row in driver.rows if row[0] < cut] + [(len(actions), coverage_at(driver.rows, cut), [row[2] for row in driver.rows if row[0] <= cut][-1])]
+        rows = [row for row in driver.rows if row[0] < cut] + [(len(actions),) + row_at(driver.rows, cut)[1:]]
     else:
         visible_ids = list(context.visible)
         chosen = lazy_greedy_cover(visible_ids, len(context.target_ids), args.target, args.min_gain)
@@ -148,13 +157,15 @@ if __name__ == '__main__':
         # NOTE: each sweep is done once wherever it is entered from, so only the walking differs between orders and the cost is symmetric
         cost = D[np.ix_(groups, groups)] + 0.5 * (sweeps[:, None] + sweeps[None, :])
         order = [groups[i] for i in order_views(0, cost)]
+        if not args.no_heading_order:
+            order = improve_heading(order, lambda candidate: heading_cost(candidate, views_at, D, context.positions, context.start_yaw, context.turn_angle, context.tilt_angle))
         driver = execute_plan(context, order, views_at, args.max_steps, args.track_every)
         actions, rows = driver.actions, driver.rows
 
-    kind = f'tours_{args.max_steps}' if budgeted else 'tours'
+    kind = (f'tours_{args.max_steps}' if budgeted else 'tours') + ('' if args.no_heading_order else '_heading')
     out_dir = args.out_dir or os.path.join(args.cache_root, 'oracle', kind, f"{context.config['dataset']['format']}_{args.scene_id}")
     context.save(out_dir, actions, rows, {'scene_id': args.scene_id, 'settings': vars(args), 'positions': [
         {'position': context.positions[p].tolist(), 'views_yaw_pitch_rad': [(v[0], v[1]) for v in views_at.get(p, [])]} for p in order]})
     log(f'{len(actions)} actions ({actions.count(FORWARD)} forward, {actions.count(TURN_LEFT) + actions.count(TURN_RIGHT)} turns, '
-        f'{actions.count(LOOK_UP) + actions.count(LOOK_DOWN)} tilts), final observable coverage {rows[-1][1] * 100:.1f} %, path {rows[-1][2]:.1f} m -> {out_dir}')
+        f'{actions.count(LOOK_UP) + actions.count(LOOK_DOWN)} tilts), final observable coverage {rows[-1][1] * 100:.1f} % (two directions: {rows[-1][3] * 100:.1f} %), path {rows[-1][2]:.1f} m -> {out_dir}')
     context.dataset.close()
