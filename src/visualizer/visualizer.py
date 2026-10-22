@@ -973,14 +973,18 @@ class Visualizer:
                         self.__global_state in [GlobalState.REPLAY, GlobalState.AUTO_PLANNING, GlobalState.MANUAL_PLANNING, GlobalState.MANUAL_CONTROL]):
                 topdown_cam = self.get_topdown_cam()
                 with self.__use_gaussian_condition:
-                    self.__use_gaussian_condition.acquire()
-                    gaussian_free_map = {k: v.clone() for k, v in self.__gaussian_packet.params.items()}
-                    gaussian_free_map = self.__cut_gaussian_by_height(
-                                                    gaussian_free_map, 
-                                                    self.__agent_head, 
-                                                    self.__agent_foot - self.__agent_foot_adjust)
-                    self.__render_topdown_free_map = self.__mapper.render_o3d_image(gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True)
-                    self.__render_topdown_visible_map = self.__mapper.render_o3d_image(self.__gaussian_for_render, topdown_cam, scale_modifier=0.01)
+                    with tracer.span('topdown: wait for gaussian lock'):
+                        self.__use_gaussian_condition.acquire()
+                    with tracer.span('topdown: clone + cut gaussians by height', sync=True, gaussians=int(self.__gaussian_packet.params['means3D'].shape[0])):
+                        gaussian_free_map = {k: v.clone() for k, v in self.__gaussian_packet.params.items()}
+                        gaussian_free_map = self.__cut_gaussian_by_height(
+                                                        gaussian_free_map, 
+                                                        self.__agent_head, 
+                                                        self.__agent_foot - self.__agent_foot_adjust)
+                    with tracer.span('topdown: render free map'):
+                        self.__render_topdown_free_map = self.__mapper.render_o3d_image(gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True)
+                    with tracer.span('topdown: render visible map'):
+                        self.__render_topdown_visible_map = self.__mapper.render_o3d_image(self.__gaussian_for_render, topdown_cam, scale_modifier=0.01)
                     if self.__save_runtime_data:
                         # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution (visualisation only)
                         timing_topdown_saved = start_timing()
@@ -1002,6 +1006,7 @@ class Visualizer:
             # NOTE: Update topdown map
             if (self.__get_topdown_flag in [self.QueryTopdownFlag.ARRIVED, self.QueryTopdownFlag.RUNNING]) or \
                 rerender_topdown_flag == True:
+                trace_display = tracer.begin()
                 max_opacity = np.max(self.__render_topdown_free_map)
                 self.__render_topdown_free_map_cv2 = depth2rgb(
                     self.__render_topdown_free_map, min_value=0.0, max_value=max_opacity, colormap="jet"
@@ -1009,12 +1014,15 @@ class Visualizer:
                 self.__render_topdown_free_map_cv2 = torch.from_numpy(self.__render_topdown_free_map_cv2)
                 self.__render_topdown_free_map_cv2 = torch.permute(self.__render_topdown_free_map_cv2, (2, 0, 1)).float()
                 self.__render_topdown_free_map_cv2 = (self.__render_topdown_free_map_cv2).byte().permute(1, 2, 0).contiguous().cpu().numpy()
-                topdown_gray_visible_map = cv2.cvtColor(
-                    self.__render_topdown_visible_map,
-                    cv2.COLOR_RGB2GRAY)
-                self.__topdown_info['free_map_binary'] = (self.__render_topdown_free_map <= 0.4).astype(np.uint8)
-                self.__topdown_info['visible_map_binary'] = (topdown_gray_visible_map == 255).astype(np.uint8)
+                tracer.finish('topdown: display image conversion', trace_display)
+                with tracer.span('topdown: binary maps for the planner'):
+                    topdown_gray_visible_map = cv2.cvtColor(
+                        self.__render_topdown_visible_map,
+                        cv2.COLOR_RGB2GRAY)
+                    self.__topdown_info['free_map_binary'] = (self.__render_topdown_free_map <= 0.4).astype(np.uint8)
+                    self.__topdown_info['visible_map_binary'] = (topdown_gray_visible_map == 255).astype(np.uint8)
                 
+                trace_display = tracer.begin()
                 self.__topdown_info['free_map_cv2'] = self.__render_topdown_free_map_cv2
                 self.__topdown_info['free_map_binary_cv2'] = cv2.cvtColor(
                     self.__topdown_info['free_map_binary'] * 255,
@@ -1024,13 +1032,16 @@ class Visualizer:
                     self.__topdown_info['visible_map_binary'] * 255,
                     cv2.COLOR_GRAY2RGB)
                 self.__update_ui_topdown()
+                tracer.finish('topdown: display images + ui update', trace_display)
                 
                 if (self.__get_topdown_flag == self.QueryTopdownFlag.RUNNING) or\
                     (self.__get_topdown_flag == self.QueryTopdownFlag.ARRIVED):
                     self.__get_topdown_flag = self.QueryTopdownFlag.NONE
                     with self.__get_topdown_condition:
-                        self.__get_topdown_condition.notify_all()
-                        self.__get_topdown_condition.wait()
+                        # NOTE: hands the maps to the service thread and blocks until it has copied them
+                        with tracer.span('topdown: handshake with service thread'):
+                            self.__get_topdown_condition.notify_all()
+                            self.__get_topdown_condition.wait()
                 elif self.__get_topdown_flag == self.QueryTopdownFlag.MANUAL:
                     self.__get_topdown_flag = self.QueryTopdownFlag.NONE
                     with self.__get_topdown_condition:
@@ -1053,12 +1064,14 @@ class Visualizer:
                     for idx, node in enumerate(self.__mapper.voronoi_nodes):
                         cur_id = node['id']
                         node_position = node['position']
-                        rgb_opacity_vis, node['invisibility'], node['volume'] = self.__mapper.get_global_invisibility(
-                            frame_last_received, cur_id, node_position, scale_modifier=1.0, show_image=(not self.__hide_windows or self.__save_runtime_data))
+                        with tracer.span('node invisibility', node=cur_id):
+                            rgb_opacity_vis, node['invisibility'], node['volume'] = self.__mapper.get_global_invisibility(
+                                frame_last_received, cur_id, node_position, scale_modifier=1.0, show_image=(not self.__hide_windows or self.__save_runtime_data))
                         if rgb_opacity_vis is not None:
-                            if self.__save_runtime_data:
-                                cv2.imwrite(os.path.join(current_vis_data_dir, f'{cur_id}.png'), rgb_opacity_vis)
-                            self.__rgb_opacity_images[cur_id] = cv2.cvtColor(rgb_opacity_vis,cv2.COLOR_RGB2BGR)
+                            with tracer.span('opacity image save', node=cur_id):
+                                if self.__save_runtime_data:
+                                    cv2.imwrite(os.path.join(current_vis_data_dir, f'{cur_id}.png'), rgb_opacity_vis)
+                                self.__rgb_opacity_images[cur_id] = cv2.cvtColor(rgb_opacity_vis,cv2.COLOR_RGB2BGR)
                             
                     visibility_ms = end_timing(*timing_get_visibility)
                     timing_recorder.record('visibility_global', frame_id, visibility_ms, trace=False)
@@ -1092,8 +1105,9 @@ class Visualizer:
                         (self.__get_visibility_flag == self.QueryVisibilityFlag.LOCAL):
                     self.__get_visibility_flag = self.QueryVisibilityFlag.NONE
                     with self.__get_opacity_condition:
-                        self.__get_opacity_condition.notify_all()
-                        self.__get_opacity_condition.wait()
+                        with tracer.span('visibility: handshake with service thread'):
+                            self.__get_opacity_condition.notify_all()
+                            self.__get_opacity_condition.wait()
                 elif self.__get_visibility_flag == self.QueryVisibilityFlag.MANUAL:
                     self.__get_visibility_flag = self.QueryVisibilityFlag.NONE
                     with self.__get_opacity_condition:
@@ -2273,16 +2287,19 @@ class Visualizer:
                 self.__get_topdown_flag = self.QueryTopdownFlag.ARRIVED
             elif self.__get_topdown_flag == self.QueryTopdownFlag.NONE:
                 self.__get_topdown_flag = self.QueryTopdownFlag.RUNNING
-            self.__get_topdown_condition.wait()
+            with tracer.span('wait for main loop (render + handshake)'):
+                self.__get_topdown_condition.wait()
             if self.__global_state == GlobalState.QUIT:
                 self.__get_topdown_condition.notify_all()
                 return None
-            free_map_binary:np.ndarray = self.__topdown_info['free_map_binary'].copy()
-            visible_map_binary:np.ndarray = self.__topdown_info['visible_map_binary'].copy()
+            with tracer.span('copy maps'):
+                free_map_binary:np.ndarray = self.__topdown_info['free_map_binary'].copy()
+                visible_map_binary:np.ndarray = self.__topdown_info['visible_map_binary'].copy()
             self.__get_topdown_condition.notify_all()
-        topdown_response = GetTopdownResponse()
-        topdown_response.free_map = free_map_binary.flatten().tolist()
-        topdown_response.visible_map = visible_map_binary.flatten().tolist()
+        with tracer.span('build response (maps to lists)', pixels=int(free_map_binary.size)):
+            topdown_response = GetTopdownResponse()
+            topdown_response.free_map = free_map_binary.flatten().tolist()
+            topdown_response.visible_map = visible_map_binary.flatten().tolist()
         if req.arrived_flag:
             topdown_response.horizon_bound_min.x = self.__topdown_info['horizon_bbox'][0][0]
             topdown_response.horizon_bound_min.y = self.__topdown_info['horizon_bbox'][0][1]
@@ -2300,7 +2317,8 @@ class Visualizer:
                 node_points = [{'id':req.nodes_id[idx],'position': np.array([node_point.x, node_point.y, node_point.z])} for idx, node_point in enumerate(req.nodes)]
                 self.__mapper.set_voronoi_nodes(node_points)
                 self.__get_visibility_flag = self.QueryVisibilityFlag.GLOBAL
-                self.__get_opacity_condition.wait()
+                with tracer.span('wait for main loop (global visibility)', nodes=len(node_points)):
+                    self.__get_opacity_condition.wait()
                 if self.__global_state == GlobalState.QUIT:
                     self.__get_opacity_condition.notify_all()
                     return None
@@ -2310,7 +2328,8 @@ class Visualizer:
             else:
                 # Local
                 self.__get_visibility_flag = self.QueryVisibilityFlag.LOCAL
-                self.__get_opacity_condition.wait()
+                with tracer.span('wait for main loop (local visibility)'):
+                    self.__get_opacity_condition.wait()
                 if self.__global_state == GlobalState.QUIT:
                     self.__get_opacity_condition.notify_all()
                     return None

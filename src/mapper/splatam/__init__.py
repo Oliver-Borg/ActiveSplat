@@ -173,9 +173,11 @@ class SplaTAM:
                 mapper_state = MapperState.IDLE
                 
         if mapper_state == MapperState.BOOTSTRAP:
-            self.__mapping(batch_copy, self.__mapping_idx)
+            with tracer.span('splatam mapping', state='bootstrap', step=self.__mapping_idx):
+                self.__mapping(batch_copy, self.__mapping_idx)
         elif mapper_state == MapperState.MAPPING:
-            self.__mapping(batch_copy, self.__mapping_idx)
+            with tracer.span('splatam mapping', state='mapping', step=self.__mapping_idx):
+                self.__mapping(batch_copy, self.__mapping_idx)
         elif mapper_state == MapperState.IDLE:
             pass
         else:
@@ -271,7 +273,8 @@ class SplaTAM:
             for keyframe in window_keyframes] + [densify_color]
         images = (torch.stack(window_colors).permute(0, 2, 3, 1).clamp(0, 1) * 255).round().byte().cpu().numpy()
         seed_depth, scale, response = self.__seeder.metric_depth(images, densify_depth)
-        timing_recorder.record('vggt_omega', cur_frame_id, response['ms'])
+        # NOTE: the worker's inference time; the request and the worker's own stages are traced as spans (mapper.vggt_omega, worker.py)
+        timing_recorder.record('vggt_omega', cur_frame_id, response['ms'], trace=False)
         
         # NOTE: Log VGGT-Omega's pose errors; poses here are the simulator's (they are never optimised), so they are ground truth.
         # A window of only the current frame (e.g. frame 0, before the camera params exist) has no pairs to compare.
@@ -293,8 +296,10 @@ class SplaTAM:
         rgb_np, depth_np, c2w = self.__get_np_data(batch)
         if self.params is not None:
             batch_copy = batch.copy()
-            self.high_loss_samples_pose_c2w= self.get_high_loss_samples(batch_copy)
+            with tracer.span('high loss samples', sync=True):
+                self.high_loss_samples_pose_c2w= self.get_high_loss_samples(batch_copy)
     
+        trace_prepare = tracer.begin(sync=True)
         rgb_np = (rgb_np * 255).astype(np.uint8) # (H, W, 3)
         rgb_np = rgb_np.reshape(self.__rgbd_sensor.height, self.__rgbd_sensor.width, 3)
         depth_np = depth_np.astype(np.float32)
@@ -436,6 +441,8 @@ class SplaTAM:
         curr_data = {'cam': self.cam, 'im': color, 'depth':depth, 'id': iter_time_idx, 
                         'intrinsics': self.intrinsics, 'w2c': self.first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
         
+        tracer.finish('prepare frame data', trace_prepare, sync=True)
+
         # Optimization Iterations
         iter_per_frame = int(self.__mapping_iters // self.__map_every)
         if iter_per_frame == 0 and cur_frame_id % self.__map_every == 0:
@@ -453,6 +460,7 @@ class SplaTAM:
         if cur_frame_id == 0 or (cur_frame_id+1) % self.__map_every == 0:
             # Densification
             if self.config['mapping']['add_new_gaussians'] and cur_frame_id > 0:
+                trace_densify = tracer.begin(sync=True)
                 densify_curr_data = {'cam': self.densify_cam, 'im': densify_color, 'depth': densify_depth, 'id': cur_frame_id, 
                             'intrinsics': self.densify_intrinsics, 'w2c': self.first_frame_w2c, 'iter_gt_w2c_list': curr_gt_w2c}
                 if self.__seeder is not None:
@@ -466,7 +474,9 @@ class SplaTAM:
                                                     seeder=self.__seeder)
                 if self.__seeder is not None:
                     timing_recorder.record('seed_points', cur_frame_id, end_timing(*timing_seed_points, use_cuda=False))
+                tracer.finish('densify (add gaussians)', trace_densify, sync=True, step=cur_frame_id)
             
+            trace_keyframes = tracer.begin(sync=True)
             with torch.no_grad():
                 # Get the current estimated rotation & translation
                 curr_cam_rot = F.normalize(self.params['cam_unnorm_rots'][..., cur_frame_id].detach())
@@ -487,8 +497,10 @@ class SplaTAM:
                 self.selected_keyframes.append(-1)
                 Log(f"\nSelected Keyframes at Frame {cur_frame_id}: {selected_time_idx}", tag='ActiveSplat')
 
+            tracer.finish('keyframe selection', trace_keyframes, sync=True, step=cur_frame_id)
             # Reset Optimizer & Learning Rates for Full Map Optimization
-            self.optimizer = initialize_optimizer(self.params, self.config['mapping']['lrs'], tracking=False) 
+            with tracer.span('initialize optimizer', sync=True):
+                self.optimizer = initialize_optimizer(self.params, self.config['mapping']['lrs'], tracking=False) 
 
         # NOTE: Mapping
         timing_mapping = start_timing()
@@ -498,6 +510,7 @@ class SplaTAM:
             progress_bar = tqdm(range(iter_per_frame), desc=f"Mapping Time Step: {cur_frame_id}")
         for iter in range(iter_per_frame):
             iter_start_time = time.time()
+            trace_iteration = tracer.begin(sync=True)
             # Randomly select a frame until current time step amongst keyframes
             rand_idx = np.random.randint(0, len(self.selected_keyframes))
             selected_rand_keyframe_idx = self.selected_keyframes[rand_idx]
@@ -515,21 +528,29 @@ class SplaTAM:
             iter_data = {'cam': self.cam, 'im': iter_color, 'depth': iter_depth, 'id': iter_time_idx, 
                         'intrinsics': self.intrinsics, 'w2c': self.first_frame_w2c, 'iter_gt_w2c_list': iter_gt_w2c}
             # Loss for current frame
+            trace_stage = tracer.begin(sync=True)
             loss, self.variables, losses = get_loss(self.params, iter_data, self.variables, iter_time_idx, self.config['mapping']['loss_weights'],
                                                     self.config['mapping']['use_sil_for_loss'], self.config['mapping']['sil_thres'],
                                                     self.config['mapping']['use_l1'], self.config['mapping']['ignore_outlier_depth_loss'], mapping=True)
+            tracer.finish('loss (forward render)', trace_stage, sync=True)
             # Backprop
+            trace_stage = tracer.begin(sync=True)
             loss.backward()
+            tracer.finish('backward', trace_stage, sync=True)
             with torch.no_grad():
                 # Prune Gaussians
+                trace_stage = tracer.begin(sync=True)
                 if self.config['mapping']['prune_gaussians']:
                     self.params, self.variables = prune_gaussians(self.params, self.variables, self.optimizer, iter, self.config['mapping']['pruning_dict'])
                 # Gaussian-Splatting's Gradient-based Densification
                 if self.config['mapping']['use_gaussian_splatting_densification']:
                     self.params, self.variables = densify(self.params, self.variables, self.optimizer, iter, self.config['mapping']['densify_dict'])
+                tracer.finish('prune + gradient densify', trace_stage, sync=True)
                 # Optimizer Update
+                trace_stage = tracer.begin(sync=True)
                 self.optimizer.step()
                 self.optimizer.zero_grad(set_to_none=True)
+                tracer.finish('optimizer step', trace_stage, sync=True)
                 # Report Progress
                 if self.config['report_iter_progress']:
                     report_progress(self.params, iter_data, iter + 1, progress_bar, iter_time_idx, sil_thres=self.config['mapping']['sil_thres'], 
@@ -537,6 +558,7 @@ class SplaTAM:
                 else:
                     progress_bar.update(1)
             # Update the runtime numbers
+            tracer.finish('iteration', trace_iteration, sync=True, step=cur_frame_id, iter=iter, gaussians=int(self.params['means3D'].shape[0]))
             iter_end_time = time.time()
             self.mapping_iter_time_sum += iter_end_time - iter_start_time
             self.mapping_iter_time_count += 1
@@ -552,6 +574,7 @@ class SplaTAM:
             self.mapping_frame_time_count += 1
 
             if cur_frame_id == 0 or (cur_frame_id+1) % self.config['report_global_progress_every'] == 0:
+                trace_report = tracer.begin(sync=True)
                 try:
                     # Report Mapping Progress
                     progress_bar = tqdm(range(1), desc=f"Mapping Result Time Step: {cur_frame_id}")
@@ -564,6 +587,7 @@ class SplaTAM:
                     os.makedirs(ckpt_output_dir, exist_ok=True)
                     save_params_ckpt(self.params, ckpt_output_dir, cur_frame_id)
                     print('Failed to evaluate trajectory.')
+                tracer.finish('report global progress', trace_report, sync=True, step=cur_frame_id)
 
         # Add frame to keyframe list
         if ((cur_frame_id == 0) or ((cur_frame_id+1) % self.__kf_every == 0) or \
@@ -584,11 +608,12 @@ class SplaTAM:
             save_params_ckpt(self.params, ckpt_output_dir, cur_frame_id)
             np.save(os.path.join(ckpt_output_dir, f"keyframe_time_indices{cur_frame_id}.npy"), np.array(self.keyframe_time_indices))
 
-        torch.cuda.empty_cache()
+        with tracer.span('cuda empty_cache'):
+            torch.cuda.empty_cache()
         cur_frame_id += 1
         cur_frame_id = cur_frame_id
         
-        with torch.no_grad():
+        with torch.no_grad(), tracer.span('publish gaussians'):
             self.q_main2vis.put(
                     (GaussianPacket(
                         self.params,
@@ -796,8 +821,9 @@ class SplaTAM:
         for i in range(int(360 / hfov)):
             view_c2w_tmp = rot_axis(view_c2w, 'y', np.deg2rad(hfov*i))
             view_w2c_tmp = np.linalg.inv(view_c2w_tmp)
-            im_np, view_opacity_np, view_depth_np = self.__render_look_around_view(
-                view_c2w_tmp, view_w2c_tmp, look_around_k, look_around_cfg, scale_modifier)
+            with tracer.span('look-around view render', node=node_id, view=i):
+                im_np, view_opacity_np, view_depth_np = self.__render_look_around_view(
+                    view_c2w_tmp, view_w2c_tmp, look_around_k, look_around_cfg, scale_modifier)
             if i == 0:
                 opacity_np = view_opacity_np
                 rgb_np = im_np.copy()
@@ -809,7 +835,8 @@ class SplaTAM:
 
         # NOTE: Compute invisibility
         invisibility_np = 1 - opacity_np
-        sum_invisibility,sum_volume = get_convexhull_volume(depth_np, invisibility_np, look_around_k)
+        with tracer.span('convex hull volume', node=node_id):
+            sum_invisibility,sum_volume = get_convexhull_volume(depth_np, invisibility_np, look_around_k)
         
         if show_image:
             max_opacity = np.max(opacity_np)

@@ -32,13 +32,27 @@ class Tracer:
     def enabled(self) -> bool:
         return self.__results_dir is not None
 
-    @staticmethod
-    def begin() -> Tuple[float, float]:
-        '''Start token: (wall time, monotonic time).'''
+    @property
+    def results_dir(self):
+        return self.__results_dir
+
+    def __synchronize(self) -> None:
+        # NOTE: CUDA kernels run asynchronously, so a span around GPU work only measures the launches unless the GPU is drained first
+        if self.__results_dir is not None:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+    def begin(self, sync:bool=False) -> Tuple[float, float]:
+        '''Start token: (wall time, monotonic time). sync: wait for the GPU first (only while tracing, it perturbs the timing slightly).'''
+        if sync:
+            self.__synchronize()
         return time.time(), time.perf_counter()
 
-    def finish(self, name:str, token:Tuple[float, float], **args) -> float:
+    def finish(self, name:str, token:Tuple[float, float], sync:bool=False, **args) -> float:
         '''Writes the span that started at token and ends now. Returns its duration in ms.'''
+        if sync:
+            self.__synchronize()
         elapsed = time.perf_counter() - token[1]
         self.__write(name, token[0], elapsed, args)
         return elapsed * 1000
@@ -47,13 +61,13 @@ class Tracer:
         '''Writes a span of the given duration that ends now (for durations measured elsewhere).'''
         self.__write(name, time.time() - elapsed_ms / 1000, elapsed_ms / 1000, args)
 
-    def span(self, name:str, **args):
+    def span(self, name:str, sync:bool=False, **args):
         tracer = self
         class Span:
             def __enter__(self):
-                self.token = tracer.begin()
+                self.token = tracer.begin(sync)
             def __exit__(self, *exc):
-                tracer.finish(name, self.token, **args)
+                tracer.finish(name, self.token, sync, **args)
         return Span()
 
     def traced(self, name:str) -> Callable:

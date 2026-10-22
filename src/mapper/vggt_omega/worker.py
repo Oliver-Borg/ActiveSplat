@@ -9,6 +9,8 @@
 #           coordinates and in the same (unknown) scale as the depth, and {'ms': float}.
 #           {'error': str} on failure.
 import argparse
+import importlib.util
+import os
 import sys
 import time
 import traceback
@@ -20,6 +22,14 @@ import torch.nn.functional as F
 
 from vggt_omega.models import VGGTOmega
 from vggt_omega.utils.pose_enc import encoding_to_camera
+
+def load_tracer():
+    # NOTE: this env cannot import the ActiveSplat `utils` package (it imports torch 2.0 etc.), but trace.py only needs the standard library
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'utils', 'trace.py')
+    spec = importlib.util.spec_from_file_location('activesplat_trace', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.tracer
 
 def target_shape(height:int, width:int, image_resolution:int, patch_size:int) -> tuple:
     # NOTE: same token budget as vggt_omega.utils.load_fn's "balanced" mode, without its centre crop,
@@ -57,33 +67,45 @@ def main() -> None:
     # NOTE: the parent reads this line to find the port
     print(f'READY {listener.address[1]}', flush=True)
     connection = listener.accept()
+    tracer = load_tracer()
     while True:
         try:
-            request = connection.recv()
+            with tracer.span('wait for request'):
+                request = connection.recv()
         except EOFError:
             break
         if request is None:
             break
+        if request.get('trace_dir') and not tracer.enabled:
+            tracer.open(request['trace_dir'], 'vggt_omega worker')
         try:
             start = time.perf_counter()
-            images = torch.from_numpy(request['images']).to(device)
-            num_frames, height, width = images.shape[:3]
-            images = images.permute(0, 3, 1, 2).float() / 255.0
-            model_height, model_width = target_shape(height, width, args.image_resolution, patch_size)
-            images = F.interpolate(images, size=(model_height, model_width), mode='bicubic', align_corners=False).clamp(0, 1)
-            with torch.inference_mode():
-                predictions = model(images)
-            extrinsics, _ = encoding_to_camera(predictions['pose_enc'], (model_height, model_width), build_intrinsics=False)
-            depth = predictions['depth'].reshape(num_frames, model_height, model_width)[-1]
-            conf = predictions['depth_conf'].reshape(num_frames, model_height, model_width)[-1]
-            depth = F.interpolate(depth[None, None], size=(height, width), mode='bilinear', align_corners=False)[0, 0]
-            conf = F.interpolate(conf[None, None], size=(height, width), mode='bilinear', align_corners=False)[0, 0]
-            torch.cuda.synchronize()
-            connection.send({
-                'depth': depth.float().cpu().numpy(),
-                'conf': conf.float().cpu().numpy(),
-                'extrinsics': extrinsics.reshape(num_frames, 3, 4).float().cpu().numpy(),
-                'ms': (time.perf_counter() - start) * 1000})
+            request_token = tracer.begin()
+            with tracer.span('upload + resize'):
+                images = torch.from_numpy(request['images']).to(device)
+                num_frames, height, width = images.shape[:3]
+                images = images.permute(0, 3, 1, 2).float() / 255.0
+                model_height, model_width = target_shape(height, width, args.image_resolution, patch_size)
+                images = F.interpolate(images, size=(model_height, model_width), mode='bicubic', align_corners=False).clamp(0, 1)
+            with tracer.span('model forward', frames=num_frames):
+                with torch.inference_mode():
+                    predictions = model(images)
+                torch.cuda.synchronize()
+            with tracer.span('pose + depth postprocess'):
+                extrinsics, _ = encoding_to_camera(predictions['pose_enc'], (model_height, model_width), build_intrinsics=False)
+                depth = predictions['depth'].reshape(num_frames, model_height, model_width)[-1]
+                conf = predictions['depth_conf'].reshape(num_frames, model_height, model_width)[-1]
+                depth = F.interpolate(depth[None, None], size=(height, width), mode='bilinear', align_corners=False)[0, 0]
+                conf = F.interpolate(conf[None, None], size=(height, width), mode='bilinear', align_corners=False)[0, 0]
+                torch.cuda.synchronize()
+            with tracer.span('copy to cpu + send'):
+                response = {
+                    'depth': depth.float().cpu().numpy(),
+                    'conf': conf.float().cpu().numpy(),
+                    'extrinsics': extrinsics.reshape(num_frames, 3, 4).float().cpu().numpy(),
+                    'ms': (time.perf_counter() - start) * 1000}
+                connection.send(response)
+            tracer.finish('request', request_token, frames=num_frames)
         except Exception:
             connection.send({'error': traceback.format_exc()})
     connection.close()

@@ -1066,15 +1066,17 @@ class PlannerNode:
                 self.__global_state_condition.notify_all()
             return
         pose_last = self.__pose_last['topdown_translation'].copy()
-        topdown_free_map_raw = np.array(get_topdown_response.free_map).reshape(self.__topdown_image_shape).astype(np.uint8) * 255
-        topdown_visible_map = np.array(get_topdown_response.visible_map).reshape(self.__topdown_image_shape).astype(np.uint8) * 255
+        with tracer.span('topdown: lists to arrays'):
+            topdown_free_map_raw = np.array(get_topdown_response.free_map).reshape(self.__topdown_image_shape).astype(np.uint8) * 255
+            topdown_visible_map = np.array(get_topdown_response.visible_map).reshape(self.__topdown_image_shape).astype(np.uint8) * 255
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (4, 4))
-        self.__topdown_free_map, local_obstacle_map_approx_contour, obstacle_map_children_approx_contours = get_obstacle_map(
-            topdown_free_map_raw,
-            topdown_visible_map,
-            pose_last,
-            kernel,
-            0.225 / self.__topdown_config['meter_per_pixel'])
+        with tracer.span('get_obstacle_map'):
+            self.__topdown_free_map, local_obstacle_map_approx_contour, obstacle_map_children_approx_contours = get_obstacle_map(
+                topdown_free_map_raw,
+                topdown_visible_map,
+                pose_last,
+                kernel,
+                0.225 / self.__topdown_config['meter_per_pixel'])
         self.__topdown_visible_map = topdown_visible_map.copy()
         self.__topdown_free_map_cv2 = cv2.cvtColor(self.__topdown_free_map, cv2.COLOR_GRAY2BGR)
         self.__topdown_visible_map_cv2 = cv2.cvtColor(self.__topdown_visible_map, cv2.COLOR_GRAY2BGR)
@@ -1096,16 +1098,18 @@ class PlannerNode:
             
         if self.__rotation_arrived_flag or self.__voronoi_graph is None or self.__voronoi_graph_cv2 is None:
             inaccessible_points = np.array([]).reshape(-1, 2)
-            self.__voronoi_graph = get_voronoi_graph(
-                obstacle_map=self.__topdown_free_map,
-                local_obstacle_map_approx_contour=local_obstacle_map_approx_contour,
-                obstacle_map_children_approx_contours=obstacle_map_children_approx_contours,
-                edge_sample_num=5,
-                agent_radius_pixel=self.__agent_radius_pixel,
-                inaccessible_points=inaccessible_points)
+            with tracer.span('get_voronoi_graph'):
+                self.__voronoi_graph = get_voronoi_graph(
+                    obstacle_map=self.__topdown_free_map,
+                    local_obstacle_map_approx_contour=local_obstacle_map_approx_contour,
+                    obstacle_map_children_approx_contours=obstacle_map_children_approx_contours,
+                    edge_sample_num=5,
+                    agent_radius_pixel=self.__agent_radius_pixel,
+                    inaccessible_points=inaccessible_points)
             if self.__rotation_arrived_flag == True:
                 # get subregions
-                self.__voronoi_graph['subregions'], self.__voronoi_graph['clusters_cv2'] = get_subregions(self.__voronoi_graph['graph'], 
+                with tracer.span('get_subregions'):
+                    self.__voronoi_graph['subregions'], self.__voronoi_graph['clusters_cv2'] = get_subregions(self.__voronoi_graph['graph'], 
                                                         self.__voronoi_graph['nodes_index'], 
                                                         self.__voronoi_graph['vertices'], 
                                                         self.__topdown_config['meter_per_pixel'], 

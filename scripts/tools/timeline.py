@@ -6,6 +6,7 @@ import json
 import os
 
 import matplotlib
+import matplotlib.colors
 matplotlib.use('Agg')
 import pandas as pd
 from matplotlib.figure import Figure
@@ -108,10 +109,13 @@ def build_interactive_figure(run_dir:str, t0:float=None, t1:float=None):
     return figure
 
 # ---- real traces: <run>/trace_<process>.jsonl written by utils.trace (spans with pid / tid; nesting by time containment) ----
-DEBUG_SPANS = {'render_rgbd', 'topdown_render_saved', 'oracle_observe'}
+DEBUG_SPANS = {'render_rgbd', 'topdown_render_saved', 'oracle_observe', 'topdown: display image conversion', 'topdown: display images + ui update',
+               'opacity image save'}
 # NOTE: waiting = blocked on another thread or process, not computing
-WAITING_SPANS = {'topdown_wait', 'opacity_wait', 'service get_topdown', 'service get_opacity'}
-PROCESS_ORDER = ['mapper node', 'planner node']
+WAITING_SPANS = {'topdown_wait', 'opacity_wait', 'service get_topdown', 'service get_opacity', 'wait for request', 'wait for worker',
+                 'wait for main loop (render + handshake)', 'wait for main loop (global visibility)', 'wait for main loop (local visibility)',
+                 'topdown: handshake with service thread', 'visibility: handshake with service thread', 'topdown: wait for gaussian lock'}
+PROCESS_ORDER = ['mapper node', 'planner node', 'vggt_omega worker']
 
 def has_trace(run_dir:str) -> bool:
     return any(name.startswith('trace_') and name.endswith('.jsonl') for name in os.listdir(run_dir))
@@ -169,7 +173,8 @@ def load_trace(run_dir:str) -> tuple:
     return events, lanes
 
 def span_color(name:str, names:list) -> str:
-    palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#bcbd22', '#17becf', '#4e79a7', '#f28e2b', '#59a14f']
+    # NOTE: 60 distinct colours (the three tab20 maps) so each span name keeps its own
+    palette = [matplotlib.colors.to_hex(color) for name_ in ('tab20', 'tab20b', 'tab20c') for color in matplotlib.colormaps[name_].colors]
     return DEBUG_COLOR if name in DEBUG_SPANS else palette[names.index(name) % len(palette)]
 
 def lane_labels(lanes:list) -> tuple:

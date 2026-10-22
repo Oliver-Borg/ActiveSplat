@@ -11,6 +11,7 @@ import torch
 from scipy.spatial import cKDTree
 
 from utils.logging_utils import Log
+from utils.trace import tracer
 
 WORKER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker.py')
 
@@ -75,8 +76,12 @@ class VGGTOmegaSeeder:
         last frame (depth up to an unknown scale), 'extrinsics' (N, 3, 4) camera-from-world for every frame in the
         same scale, and 'ms', the worker's inference time.
         '''
-        self.__connection.send({'images': np.ascontiguousarray(images, dtype=np.uint8)})
-        response = self.__connection.recv()
+        with tracer.span('vggt_omega request', frames=len(images)):
+            # NOTE: the worker is its own process and writes its own trace file, into the directory it is told here
+            with tracer.span('send images'):
+                self.__connection.send({'images': np.ascontiguousarray(images, dtype=np.uint8), 'trace_dir': tracer.results_dir})
+            with tracer.span('wait for worker'):
+                response = self.__connection.recv()
         if 'error' in response:
             raise RuntimeError(f'VGGT-Omega worker failed:\n{response["error"]}')
         return response
