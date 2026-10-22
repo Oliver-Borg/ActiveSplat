@@ -959,6 +959,7 @@ class Visualizer:
                 self.__dynamic_height_box.checked = True
                 
             timing_topdown_render = start_timing()
+            topdown_saved_ms = 0.0
             # NOTE: Render topdown map
             rerender_topdown_flag = False
             if (self.__gaussian_packet is not None and\
@@ -974,14 +975,19 @@ class Visualizer:
                     self.__render_topdown_free_map = self.__mapper.render_o3d_image(gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True)
                     self.__render_topdown_visible_map = self.__mapper.render_o3d_image(self.__gaussian_for_render, topdown_cam, scale_modifier=0.01)
                     if self.__save_runtime_data:
-                        # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution
+                        # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution (visualisation only)
+                        timing_topdown_saved = start_timing()
                         self.__render_topdown_visible_map_saved = self.__mapper.render_o3d_image(
                             self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01)
+                        topdown_saved_ms = end_timing(*timing_topdown_saved)
                     self.__use_gaussian_condition.release()
                 rerender_topdown_flag = True
             topdown_render_ms = end_timing(*timing_topdown_render)
             if rerender_topdown_flag:
-                timing_recorder.record('topdown_render', frame_id, topdown_render_ms)
+                # NOTE: 'topdown_render' = the free and visible maps the planner uses; the high-resolution saved image is its own (visualisation) stage
+                timing_recorder.record('topdown_render', frame_id, topdown_render_ms - topdown_saved_ms)
+                if topdown_saved_ms > 0:
+                    timing_recorder.record('topdown_render_saved', frame_id, topdown_saved_ms)
             Log(f'Topdown render used {topdown_render_ms:.2f} ms')
             # NOTE: Update topdown map
             if (self.__get_topdown_flag in [self.QueryTopdownFlag.ARRIVED, self.QueryTopdownFlag.RUNNING]) or \
@@ -1196,8 +1202,10 @@ class Visualizer:
             if not self.__hide_windows or self.__save_runtime_data:
                 if (frame_last_received is not None and\
                     frame_id > rendering_rgbd_last_frame_id):
+                    timing_render_rgbd = start_timing()
                     color_vis, depth_vis = self.__mapper.render_rgbd(frame_last_received, scale_modifier=1.0)
                     rgbd = np.hstack((color_vis, depth_vis))
+                    timing_recorder.record('render_rgbd', frame_id, end_timing(*timing_render_rgbd))
                     if self.__save_runtime_data:
                         cv2.imwrite(str(self.render_rgbd_dir) + f'/{frame_id}.png', cv2.cvtColor(rgbd, cv2.COLOR_BGR2RGB))
                         self.__runtime_data_info['current_vis_data']['rgb_render'] = color_vis

@@ -33,7 +33,7 @@ VIDEO_SOURCES = [
     ('topdown_visibility', 'Top-down visibility map', os.path.join('runtime_data', 'topdown_visible_map'), 'folder')]
 VIDEO_FPS_CHOICES = [10, 20, 30, 60]
 # NOTE: stages written by utils.timing_recorder
-TIMING_STAGES = ['capture', 'mapper', 'optimise', 'topdown_render', 'visibility_global', 'visibility_local', 'vggt_omega', 'seed_points', 'plan_topdown', 'plan_logic', 'topdown_wait', 'opacity_wait']
+TIMING_STAGES = ['capture', 'mapper', 'optimise', 'topdown_render', 'visibility_global', 'visibility_local', 'render_rgbd', 'topdown_render_saved', 'oracle_observe', 'vggt_omega', 'seed_points', 'plan_topdown', 'plan_logic', 'topdown_wait', 'opacity_wait']
 # NOTE: (timeline column, label, what it is) of the compute the drone waits for after each capture
 REALTIME_COMPUTE_PHASES = [
     ('optimise_s', 'hovering, optimising map', 'optimising the Gaussians'),

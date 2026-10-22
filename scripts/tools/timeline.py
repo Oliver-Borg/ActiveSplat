@@ -9,17 +9,27 @@ matplotlib.use('Agg')
 import pandas as pd
 from matplotlib.figure import Figure
 
-ROWS = [('mapper process', 'timing.csv', ['capture', 'mapper', 'optimise', 'topdown_render', 'visibility_global', 'visibility_local', 'seed_points', 'vggt_omega', 'oracle_observe']),
-        ('planner process', 'planner_timing.csv', ['topdown_wait', 'opacity_wait', 'plan_topdown', 'plan_logic'])]
+# (stage, process, file, kind): 'production' stages are needed by the mapper or planner to run; 'debug' stages only produce visualisations or
+# evaluation data (saved images, GUI renders, oracle scoring) and disappear when those options are off.
+# NOTE: visibility_* also includes the opacity images, which are rendered only when windows are shown or runtime data is saved
+STAGES = [('capture', 'mapper', 'timing.csv', 'production'), ('mapper', 'mapper', 'timing.csv', 'production'), ('optimise', 'mapper', 'timing.csv', 'production'),
+          ('seed_points', 'mapper', 'timing.csv', 'production'), ('vggt_omega', 'mapper', 'timing.csv', 'production'),
+          ('topdown_render', 'mapper', 'timing.csv', 'production'), ('visibility_global', 'mapper', 'timing.csv', 'production'),
+          ('visibility_local', 'mapper', 'timing.csv', 'production'),
+          ('topdown_wait', 'planner', 'planner_timing.csv', 'production'), ('opacity_wait', 'planner', 'planner_timing.csv', 'production'),
+          ('plan_topdown', 'planner', 'planner_timing.csv', 'production'), ('plan_logic', 'planner', 'planner_timing.csv', 'production'),
+          ('render_rgbd', 'mapper', 'timing.csv', 'debug'), ('topdown_render_saved', 'mapper', 'timing.csv', 'debug'),
+          ('oracle_observe', 'mapper', 'timing.csv', 'debug')]
+KIND_TITLES = {'production': 'PRODUCTION (needed to run)', 'debug': 'VISUALISATION / DEBUG (can be switched off)'}
+PRODUCTION_COLORS = {'mapper': 'tab:blue', 'planner': 'tab:orange'}
+DEBUG_COLOR = '0.45'
 
 def load(run_dir:str) -> pd.DataFrame:
     frames = []
-    for process, name, order in ROWS:
+    for name in sorted({stage[2] for stage in STAGES}):
         path = os.path.join(run_dir, name)
         if os.path.isfile(path):
-            frame = pd.read_csv(path)
-            frame['process'] = process
-            frames.append(frame)
+            frames.append(pd.read_csv(path))
     events = pd.concat(frames, ignore_index=True)
     events['end'] = events['wall_time']
     events['start'] = events['end'] - events['ms'] / 1000
@@ -30,21 +40,36 @@ def load(run_dir:str) -> pd.DataFrame:
 def build_figure(run_dir:str, t0:float=None, t1:float=None) -> Figure:
     '''t0, t1: optional window in seconds since the first event.'''
     events = load(run_dir)
-    labels = [(process, stage) for process, _, stages in ROWS for stage in stages if ((events['process'] == process) & (events['stage'] == stage)).any()]
+    present = set(events['stage'])
+    rows = [stage for stage in STAGES if stage[0] in present]
     if t0 is not None or t1 is not None:
         events = events[(events['end'] >= (t0 or 0)) & (events['start'] <= (t1 if t1 is not None else 1e18))]
-    fig = Figure(figsize=(16, 0.55 * len(labels) + 1.5))
+    # NOTE: a gap row between the production and the debug group
+    positions, y = [], 0.0
+    for index, (_, _, _, kind) in enumerate(rows):
+        if index and kind != rows[index - 1][3]:
+            y += 0.8
+        positions.append(y)
+        y += 1.0
+    fig = Figure(figsize=(16, 0.5 * y + 1.8))
     ax = fig.subplots()
-    colors = matplotlib.colormaps['tab10']
-    for row, (process, stage) in enumerate(labels):
-        part = events[(events['process'] == process) & (events['stage'] == stage)]
-        ax.broken_barh(list(zip(part['start'], part['end'] - part['start'])), (row - 0.4, 0.8), facecolors=colors(row % 10), linewidth=0)
-    ax.set_yticks(range(len(labels)))
-    ax.set_yticklabels([f'{stage}  ({process.split()[0]})' for process, stage in labels])
+    for (stage, process, _, kind), position in zip(rows, positions):
+        part = events[events['stage'] == stage]
+        waiting = stage.endswith('_wait')
+        ax.broken_barh(list(zip(part['start'], part['end'] - part['start'])), (position - 0.4, 0.8),
+                       facecolors=DEBUG_COLOR if kind == 'debug' else PRODUCTION_COLORS[process],
+                       alpha=0.45 if waiting else 1.0, hatch='////' if kind == 'debug' else None, edgecolor='white' if kind == 'debug' else None, linewidth=0)
+    for kind in KIND_TITLES:
+        group = [position for (_, _, _, k), position in zip(rows, positions) if k == kind]
+        if group:
+            ax.axhspan(min(group) - 0.5, max(group) + 0.5, color='0.9' if kind == 'debug' else 'none', zorder=0)
+            ax.text(1.002, (min(group) + max(group)) / 2, KIND_TITLES[kind], transform=ax.get_yaxis_transform(), rotation=270, va='center', ha='left', fontsize=8)
+    ax.set_yticks(positions)
+    ax.set_yticklabels([f'{stage}  ({process}{", waiting" if stage.endswith("_wait") else ""})' for stage, process, _, _ in rows])
     ax.invert_yaxis()
     ax.set_xlim(t0 or 0, t1 if t1 is not None else events['end'].max())
     ax.set_xlabel('wall-clock time since the first event (s)')
-    ax.set_title(os.path.basename(os.path.normpath(run_dir)))
+    ax.set_title(os.path.basename(os.path.normpath(run_dir)) + '   (blue = mapper process, orange = planner process, faded = waiting, grey hatched = visualisation/debug)', fontsize=10)
     ax.grid(axis='x', alpha=0.3)
     fig.tight_layout()
     return fig
