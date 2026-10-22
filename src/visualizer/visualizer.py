@@ -979,7 +979,10 @@ class Visualizer:
                             self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01)
                     self.__use_gaussian_condition.release()
                 rerender_topdown_flag = True
-            Log(f'Topdown render used {end_timing(*timing_topdown_render):.2f} ms')
+            topdown_render_ms = end_timing(*timing_topdown_render)
+            if rerender_topdown_flag:
+                timing_recorder.record('topdown_render', frame_id, topdown_render_ms)
+            Log(f'Topdown render used {topdown_render_ms:.2f} ms')
             # NOTE: Update topdown map
             if (self.__get_topdown_flag in [self.QueryTopdownFlag.ARRIVED, self.QueryTopdownFlag.RUNNING]) or \
                 rerender_topdown_flag == True:
@@ -1040,7 +1043,9 @@ class Visualizer:
                                 cv2.imwrite(os.path.join(current_vis_data_dir, f'{cur_id}.png'), rgb_opacity_vis)
                             self.__rgb_opacity_images[cur_id] = cv2.cvtColor(rgb_opacity_vis,cv2.COLOR_RGB2BGR)
                             
-                    Log(f'Get global visibility used {end_timing(*timing_get_visibility):.2f} ms', tag='ActiveSplat')
+                    visibility_ms = end_timing(*timing_get_visibility)
+                    timing_recorder.record('visibility_global', frame_id, visibility_ms)
+                    Log(f'Get global visibility used {visibility_ms:.2f} ms', tag='ActiveSplat')
                         
                 elif self.__get_visibility_flag == self.QueryVisibilityFlag.LOCAL:
                     # NOTE: Local visibility
@@ -1058,7 +1063,9 @@ class Visualizer:
                         pose_data_o3d = OPENCV_TO_OPENGL @ self.local_node['best_pose']
                         self.rotation_frustum = self.update_target_frustums([pose_data_o3d], ROTATION_FRUSTUM['color'])
                         rerender_rotation_frustum_flag = True
-                    Log(f'Get local visibility used {end_timing(*timing_get_visibility):.2f} ms', tag='ActiveSplat')
+                    visibility_ms = end_timing(*timing_get_visibility)
+                    timing_recorder.record('visibility_local', frame_id, visibility_ms)
+                    Log(f'Get local visibility used {visibility_ms:.2f} ms', tag='ActiveSplat')
                     
                 if (self.__get_visibility_flag == self.QueryVisibilityFlag.RUNNING) or\
                     (self.__get_visibility_flag == self.QueryVisibilityFlag.GLOBAL) or\

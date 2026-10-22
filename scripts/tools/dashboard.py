@@ -15,6 +15,7 @@ from PIL import Image
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from export_ply import export_ply
+from timeline import build_figure as build_timeline_figure
 
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 
@@ -32,7 +33,7 @@ VIDEO_SOURCES = [
     ('topdown_visibility', 'Top-down visibility map', os.path.join('runtime_data', 'topdown_visible_map'), 'folder')]
 VIDEO_FPS_CHOICES = [10, 20, 30, 60]
 # NOTE: stages written by utils.timing_recorder
-TIMING_STAGES = ['capture', 'mapper', 'optimise', 'vggt_omega', 'seed_points', 'plan_topdown', 'plan_logic', 'topdown_wait', 'opacity_wait']
+TIMING_STAGES = ['capture', 'mapper', 'optimise', 'topdown_render', 'visibility_global', 'visibility_local', 'vggt_omega', 'seed_points', 'plan_topdown', 'plan_logic', 'topdown_wait', 'opacity_wait']
 # NOTE: (timeline column, label, what it is) of the compute the drone waits for after each capture
 REALTIME_COMPUTE_PHASES = [
     ('optimise_s', 'hovering, optimising map', 'optimising the Gaussians'),
@@ -842,6 +843,14 @@ def build_app(results_dir:str) -> gr.Blocks:
                 timing_table = gr.Dataframe(label='Per-step time by stage', interactive=False)
                 timing_breakdown_plot = gr.BarPlot(x='part', y='seconds', title='Where the wall time went', height=300, sort='-y')
                 timing_steps_plot = gr.LinePlot(x='step', y='ms', color='stage', title='Time per step', height=360)
+            with gr.Tab('Timeline') as timeline_tab:
+                gr.Markdown('Trace chart: one row per stage, one bar per event (start = end time minus duration). The mapper and planner are separate '
+                            'processes, so their rows overlap in time. Window 0 to 0 shows the whole run. Planner rows need `planner_timing.csv`.')
+                with gr.Row():
+                    timeline_from = gr.Number(value=0, label='From (s)')
+                    timeline_to = gr.Number(value=0, label='To (s)')
+                    timeline_button = gr.Button('Draw', variant='primary')
+                timeline_plot = gr.Plot(label='Timeline')
             with gr.Tab('Pose errors'):
                 pose_error_markdown = gr.Markdown()
                 pose_rot_plot = gr.LinePlot(x='step', y='error', color='statistic', title='VGGT-Ω rotation error per mapped frame (°)', height=320)
@@ -884,6 +893,14 @@ def build_app(results_dir:str) -> gr.Blocks:
         load_button.click(load_splat, inputs=run_state, outputs=[model_view, ply_file])
         compare_button.click(compare_runs, outputs=compare_table)
         coverage_button.click(lambda names: coverage_curves(results_dir, names), inputs=coverage_select, outputs=[coverage_plot, coverage_table])
+        def draw_timeline(run_name:str, start:float, end:float):
+            run_dir = os.path.join(results_dir, run_name or '')
+            if not run_name or not os.path.isfile(os.path.join(run_dir, 'timing.csv')):
+                return None
+            window = (start, end) if end and end > (start or 0) else (None, None)
+            return build_timeline_figure(run_dir, *window)
+        timeline_button.click(draw_timeline, inputs=[run_dropdown, timeline_from, timeline_to], outputs=timeline_plot)
+        timeline_tab.select(draw_timeline, inputs=[run_dropdown, timeline_from, timeline_to], outputs=timeline_plot)
         coverage_refresh.click(lambda: gr.update(choices=coverage_choices(results_dir)), outputs=coverage_select)
     return app
 
