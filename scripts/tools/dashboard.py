@@ -15,7 +15,7 @@ from PIL import Image
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from export_ply import export_ply
-from timeline import build_figure as build_timeline_figure
+from timeline import build_interactive_figure as build_timeline_figure
 
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 
@@ -844,12 +844,10 @@ def build_app(results_dir:str) -> gr.Blocks:
                 timing_breakdown_plot = gr.BarPlot(x='part', y='seconds', title='Where the wall time went', height=300, sort='-y')
                 timing_steps_plot = gr.LinePlot(x='step', y='ms', color='stage', title='Time per step', height=360)
             with gr.Tab('Timeline') as timeline_tab:
-                gr.Markdown('Trace chart: one row per stage, one bar per event (start = end time minus duration). The mapper and planner are separate '
-                            'processes, so their rows overlap in time. Window 0 to 0 shows the whole run. Planner rows need `planner_timing.csv`.')
-                with gr.Row():
-                    timeline_from = gr.Number(value=0, label='From (s)')
-                    timeline_to = gr.Number(value=0, label='To (s)')
-                    timeline_button = gr.Button('Draw', variant='primary')
+                gr.Markdown('Trace chart: one row per stage, one bar per event (start = end time minus duration). Hover a bar for its step and duration, '
+                            'drag to zoom, double-click to reset, drag the slider below to move the window, click a legend entry to hide a row (or double-click to isolate it). '
+                            'Blue = mapper process, orange = planner process (faded = waiting), grey hatched = visualisation/debug only. Planner rows need `planner_timing.csv`.')
+                timeline_button = gr.Button('Draw', variant='primary')
                 timeline_plot = gr.Plot(label='Timeline')
             with gr.Tab('Pose errors'):
                 pose_error_markdown = gr.Markdown()
@@ -893,14 +891,13 @@ def build_app(results_dir:str) -> gr.Blocks:
         load_button.click(load_splat, inputs=run_state, outputs=[model_view, ply_file])
         compare_button.click(compare_runs, outputs=compare_table)
         coverage_button.click(lambda names: coverage_curves(results_dir, names), inputs=coverage_select, outputs=[coverage_plot, coverage_table])
-        def draw_timeline(run_name:str, start:float, end:float):
+        def draw_timeline(run_name:str):
             run_dir = os.path.join(results_dir, run_name or '')
             if not run_name or not os.path.isfile(os.path.join(run_dir, 'timing.csv')):
                 return None
-            window = (start, end) if end and end > (start or 0) else (None, None)
-            return build_timeline_figure(run_dir, *window)
-        timeline_button.click(draw_timeline, inputs=[run_dropdown, timeline_from, timeline_to], outputs=timeline_plot)
-        timeline_tab.select(draw_timeline, inputs=[run_dropdown, timeline_from, timeline_to], outputs=timeline_plot)
+            return build_timeline_figure(run_dir)
+        timeline_button.click(draw_timeline, inputs=run_dropdown, outputs=timeline_plot)
+        timeline_tab.select(draw_timeline, inputs=run_dropdown, outputs=timeline_plot)
         coverage_refresh.click(lambda: gr.update(choices=coverage_choices(results_dir)), outputs=coverage_select)
     return app
 

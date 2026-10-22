@@ -21,8 +21,8 @@ STAGES = [('capture', 'mapper', 'timing.csv', 'production'), ('mapper', 'mapper'
           ('render_rgbd', 'mapper', 'timing.csv', 'debug'), ('topdown_render_saved', 'mapper', 'timing.csv', 'debug'),
           ('oracle_observe', 'mapper', 'timing.csv', 'debug')]
 KIND_TITLES = {'production': 'PRODUCTION (needed to run)', 'debug': 'VISUALISATION / DEBUG (can be switched off)'}
-PRODUCTION_COLORS = {'mapper': 'tab:blue', 'planner': 'tab:orange'}
-DEBUG_COLOR = '0.45'
+PRODUCTION_COLORS = {'mapper': '#1f77b4', 'planner': '#ff7f0e'}
+DEBUG_COLOR = '#737373'
 
 def load(run_dir:str) -> pd.DataFrame:
     frames = []
@@ -40,18 +40,10 @@ def load(run_dir:str) -> pd.DataFrame:
 def build_figure(run_dir:str, t0:float=None, t1:float=None) -> Figure:
     '''t0, t1: optional window in seconds since the first event.'''
     events = load(run_dir)
-    present = set(events['stage'])
-    rows = [stage for stage in STAGES if stage[0] in present]
+    rows, positions = layout(events)
     if t0 is not None or t1 is not None:
         events = events[(events['end'] >= (t0 or 0)) & (events['start'] <= (t1 if t1 is not None else 1e18))]
-    # NOTE: a gap row between the production and the debug group
-    positions, y = [], 0.0
-    for index, (_, _, _, kind) in enumerate(rows):
-        if index and kind != rows[index - 1][3]:
-            y += 0.8
-        positions.append(y)
-        y += 1.0
-    fig = Figure(figsize=(16, 0.5 * y + 1.8))
+    fig = Figure(figsize=(16, 0.5 * (positions[-1] + 1) + 1.8))
     ax = fig.subplots()
     for (stage, process, _, kind), position in zip(rows, positions):
         part = events[events['stage'] == stage]
@@ -73,6 +65,46 @@ def build_figure(run_dir:str, t0:float=None, t1:float=None) -> Figure:
     ax.grid(axis='x', alpha=0.3)
     fig.tight_layout()
     return fig
+
+def layout(events:pd.DataFrame) -> tuple:
+    '''Rows present in the events and their y positions, with a gap between the production and the debug group.'''
+    present = set(events['stage'])
+    rows = [stage for stage in STAGES if stage[0] in present]
+    positions, y = [], 0.0
+    for index, (_, _, _, kind) in enumerate(rows):
+        if index and kind != rows[index - 1][3]:
+            y += 0.8
+        positions.append(y)
+        y += 1.0
+    return rows, positions
+
+def build_interactive_figure(run_dir:str, t0:float=None, t1:float=None):
+    '''Plotly version of the trace chart: hover for the stage, step and duration of an event, drag to zoom, double-click to reset, click a legend entry to hide a row.'''
+    import plotly.graph_objects as go
+    events = load(run_dir)
+    rows, positions = layout(events)
+    if t0 is not None or t1 is not None:
+        events = events[(events['end'] >= (t0 or 0)) & (events['start'] <= (t1 if t1 is not None else 1e18))]
+    figure = go.Figure()
+    for (stage, process, _, kind), position in zip(rows, positions):
+        part = events[events['stage'] == stage]
+        waiting = stage.endswith('_wait')
+        figure.add_trace(go.Bar(
+            name=f'{stage}{" (waiting)" if waiting else ""}', legendgroup=kind, legendgrouptitle_text=KIND_TITLES[kind],
+            orientation='h', y=[position] * len(part), x=(part['end'] - part['start']).tolist(), base=part['start'].tolist(), width=0.8,
+            marker=dict(color=DEBUG_COLOR if kind == 'debug' else PRODUCTION_COLORS[process], opacity=0.45 if waiting else 1.0,
+                        pattern_shape='/' if kind == 'debug' else '', line_width=0),
+            customdata=list(zip(part['step'], part['ms'].round(1), part['start'].round(3))),
+            hovertemplate=f'<b>{stage}</b> ({process} process)<br>step %{{customdata[0]}}<br>%{{customdata[1]}} ms<br>started at %{{customdata[2]}} s<extra></extra>'))
+    shapes = [dict(type='rect', xref='paper', x0=0, x1=1, yref='y', y0=min(g) - 0.5, y1=max(g) + 0.5, fillcolor='rgba(128,128,128,0.15)', line_width=0, layer='below')
+              for g in [[position for (_, _, _, k), position in zip(rows, positions) if k == 'debug']] if g]
+    figure.update_layout(
+        barmode='overlay', bargap=0, shapes=shapes, height=max(420, 34 * len(rows) + 160), margin=dict(l=10, r=10, t=40, b=40),
+        title=dict(text=os.path.basename(os.path.normpath(run_dir)) + ' — blue: mapper process, orange: planner process, faded: waiting, grey hatched: visualisation/debug', font_size=13),
+        xaxis=dict(title='wall-clock time since the first event (s)', rangeslider=dict(visible=True, thickness=0.06), range=[t0 or 0, t1] if t1 is not None else None),
+        yaxis=dict(tickvals=positions, ticktext=[stage for stage, _, _, _ in rows], autorange='reversed', fixedrange=True, showgrid=False),
+        legend=dict(groupclick='togglegroup'), hovermode='closest')
+    return figure
 
 def plot(run_dir:str, out:str, t0:float=None, t1:float=None) -> None:
     build_figure(run_dir, t0, t1).savefig(out, dpi=150)
