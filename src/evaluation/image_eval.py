@@ -70,7 +70,7 @@ def psnr(prediction:torch.Tensor, target:torch.Tensor) -> float:
 
 @torch.no_grad()
 def evaluate_view(params:dict, intrinsics:np.ndarray, render_config:dict, lpips_model, view:dict, device:torch.device) -> Tuple[dict, np.ndarray]:
-    scene_data, scene_depth_data = get_rendervars(params, view['w2c'])
+    scene_data, scene_depth_data = get_rendervars(params, view['w2c'], with_depth_sil=False)
     image, depth, opacity, _ = render(view['w2c'], intrinsics, scene_data, scene_depth_data, render_config)
     image = image.clamp(0, 1)
     target = torch.as_tensor(view['rgb'], device=device).float().permute(2, 0, 1)

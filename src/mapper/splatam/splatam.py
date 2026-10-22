@@ -448,12 +448,33 @@ def render(w2c, k, timestep_data, timestep_depth_data, cfg, scale_modifier=1.0):
             debug=cam.debug,
         )
         im, _, depth, opacity, = Renderer(raster_settings=white_bg_cam)(**timestep_data)
+        if timestep_depth_data is None:
+            # NOTE: callers that only use the image, depth and opacity skip the second (depth + silhouette) pass: it takes as long as the first
+            return im, depth, opacity, None
         depth_sil, _, _,_, = Renderer(raster_settings=cam)(**timestep_depth_data)
         differentiable_depth = depth_sil[0, :, :].unsqueeze(0)
         sil = depth_sil[1, :, :].unsqueeze(0)
         return im, depth, opacity, sil 
 
-def get_rendervars(params, w2c, curr_timestep=None):
+def prepare_render_params(params):
+    '''The per-Gaussian inputs of the rasterizer that depend only on the map (not on the camera): normalised rotations, activated opacities and
+    scales. Computing them is a pass over every Gaussian, so a map rendered from several cameras is prepared once and passed to get_rendervars.
+    The means and colours are copies, so the result does not change when the live map is updated in place.'''
+    log_scales = torch.tile(params['log_scales'], (1, 3)) if params['log_scales'].shape[-1] == 1 else params['log_scales']
+    return {
+        'means3D': params['means3D'].clone(),
+        'colors_precomp': params['rgb_colors'].clone(),
+        'rotations': torch.nn.functional.normalize(params['unnorm_rotations']),
+        'opacities': torch.sigmoid(params['logit_opacities']),
+        'scales': torch.exp(log_scales)}
+
+def get_rendervars(params, w2c, curr_timestep=None, with_depth_sil=True, prepared=None):
+    '''(rendervar, depth_rendervar). with_depth_sil=False skips building the depth/silhouette inputs (returns None for them); prepared: the
+    result of prepare_render_params(params), to skip recomputing the camera-independent part.'''
+    if prepared is not None:
+        rendervar = dict(prepared, means2D=torch.zeros_like(prepared['means3D'], device="cuda"))
+        assert not with_depth_sil, 'prepared inputs are for image-only renders'
+        return rendervar, None
     if curr_timestep is not None:
         params_timesteps = params['timestep']
         selected_params_idx = params_timesteps <= curr_timestep
@@ -477,6 +498,8 @@ def get_rendervars(params, w2c, curr_timestep=None):
         'scales': torch.exp(log_scales),
         'means2D': torch.zeros_like(params['means3D'], device="cuda")
     }
+    if not with_depth_sil:
+        return rendervar, None
     depth_rendervar = {
         'means3D': params['means3D'],
         'colors_precomp': get_depth_and_silhouette(params['means3D'], w2c),

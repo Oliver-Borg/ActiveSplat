@@ -27,6 +27,7 @@ from dataloader import RGBDSensor, PoseDataType,  load_scene_mesh, dataset_confi
 from mapper import get_mapper, MapperState, GaussianColorType, MapperType
 from mapper.splatam.utils.graphics_utils import fov2focal
 from utils.gui_utils import OPENCV_TO_OPENGL, GaussianPacket, PoseChangeType, vfov_to_hfov, create_frustum, rgbd_to_pointcloud, pose_to_matrix, matrix_to_pose, rotation_matrix_from_vectors, c2w_topdown_to_world, c2w_world_to_topdown, is_pose_changed, get_horizon_bound_topdown, update_traj, config_topdown_info, visualize_agent, translations_world_to_topdown
+from mapper.splatam.splatam import prepare_render_params
 from evaluation.image_eval import collect_novel_views, evaluate_view_sets, load_lpips, log_summaries, make_view
 from utils.logging_utils import Log
 from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder, tracer, imwrite_jpeg
@@ -127,6 +128,18 @@ class Visualizer:
         self.__image_eval_settings = {'enabled': True, 'trajectory_stride': 5, 'novel_views': 100, 'novel_radius': 1.5, 'examples': 6, 'seed': 0,
                                       **config.get('image_eval', {})}
         self.__eval_trajectory_views = []
+        # NOTE: top-down map cache. The free map is rendered from the live map, which the mapper updates in place, so it is keyed by a counter of mapper
+        # steps; the visible map is rendered from a snapshot taken in receive_data (so it lags the free map by one mapper step), keyed by that snapshot.
+        # A render with unchanged inputs gives the identical image, so it is reused. ACTIVESPLAT_VERIFY_TOPDOWN=1 re-renders every map the original way and compares.
+        self.__params_version = 0
+        self.__gaussian_for_render_key = None
+        self.__gaussian_for_render_prepared = None
+        self.__topdown_free_key = None
+        self.__topdown_visible_key = None
+        self.__topdown_saved_key = None
+        self.__verify_topdown = os.environ.get('ACTIVESPLAT_VERIFY_TOPDOWN') == '1'
+        self.__verify_stats = {'free_checked': 0, 'free_mismatch': 0, 'visible_checked': 0, 'visible_mismatch': 0, 'saved_checked': 0, 'saved_mismatch': 0,
+                               'snapshot_checked': 0, 'snapshot_mismatch': 0, 'renders_reused': 0, 'renders_done': 0}
         # NOTE: the simulator's render context belongs to the dataset thread, so that thread captures the novel views (it teleports the agent)
         # just before it closes the simulator at the end of the run; the main thread then scores them against the final map
         self.__eval_novel_views = []
@@ -953,6 +966,8 @@ class Visualizer:
             trace_mapper_run = tracer.begin()
             if self.__global_state in [GlobalState.REPLAY, GlobalState.AUTO_PLANNING, GlobalState.MANUAL_PLANNING, GlobalState.MANUAL_CONTROL]:
                 mapper_state = self.__mapper.run(frame_current)
+                if frame_current is not None and mapper_state in [MapperState.BOOTSTRAP, MapperState.MAPPING]:
+                    self.__params_version += 1
                 if self.__high_loss_samples_pose_pub is not None and self.__mapper.high_loss_samples_pose_c2w is not None:
                     pose = Pose()
                     pose.position.x = self.__mapper.high_loss_samples_pose_c2w[0, 3]
@@ -987,27 +1002,50 @@ class Visualizer:
             if (self.__gaussian_packet is not None and\
                         self.__global_state in [GlobalState.REPLAY, GlobalState.AUTO_PLANNING, GlobalState.MANUAL_PLANNING, GlobalState.MANUAL_CONTROL]):
                 topdown_cam = self.get_topdown_cam()
+                camera_key = (tuple(np.ravel(self.__topdown_info['world_center']).tolist()), tuple(self.__topdown_info['grid_map_shape']),
+                              tuple(np.ravel(self.__topdown_info['topdown_world_shape']).tolist()))
+                height_cut = (self.__agent_head, self.__agent_foot - self.__agent_foot_adjust)
+                free_key = (self.__params_version, height_cut, camera_key)
+                visible_key = (self.__gaussian_for_render_key, camera_key)
                 with self.__use_gaussian_condition:
                     with tracer.span('topdown: wait for gaussian lock'):
                         self.__use_gaussian_condition.acquire()
-                    with tracer.span('topdown: clone + cut gaussians by height', sync=True, gaussians=int(self.__gaussian_packet.params['means3D'].shape[0])):
-                        gaussian_free_map = {k: v.clone() for k, v in self.__gaussian_packet.params.items()}
-                        gaussian_free_map = self.__cut_gaussian_by_height(
-                                                        gaussian_free_map, 
-                                                        self.__agent_head, 
-                                                        self.__agent_foot - self.__agent_foot_adjust)
-                    with tracer.span('topdown: render free map'):
-                        self.__render_topdown_free_map = self.__mapper.render_o3d_image(gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True)
-                    with tracer.span('topdown: render visible map'):
-                        self.__render_topdown_visible_map = self.__mapper.render_o3d_image(self.__gaussian_for_render, topdown_cam, scale_modifier=0.01)
-                    if self.__save_runtime_data:
+                    if free_key != self.__topdown_free_key:
+                        with tracer.span('topdown: cut gaussians by height', sync=True, gaussians=int(self.__gaussian_packet.params['means3D'].shape[0])):
+                            # NOTE: the boolean-mask cut copies, so the live map needs no clone first
+                            gaussian_free_map = self.__cut_gaussian_by_height(dict(self.__gaussian_packet.params), *height_cut)
+                        with tracer.span('topdown: prepare render params', sync=True):
+                            prepared_free_map = prepare_render_params(gaussian_free_map)
+                        with tracer.span('topdown: render free map'):
+                            self.__render_topdown_free_map = self.__mapper.render_o3d_image(
+                                gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True, prepared=prepared_free_map)
+                        self.__topdown_free_key = free_key
+                        self.__verify_stats['renders_done'] += 1
+                    else:
+                        self.__verify_stats['renders_reused'] += 1
+                    if visible_key != self.__topdown_visible_key or (self.__save_runtime_data and (self.__gaussian_for_render_key, 'saved', camera_key) != self.__topdown_saved_key):
+                        if self.__gaussian_for_render_prepared is None:
+                            with tracer.span('topdown: prepare render params (visible)', sync=True):
+                                self.__gaussian_for_render_prepared = prepare_render_params(self.__gaussian_for_render)
+                    if visible_key != self.__topdown_visible_key:
+                        with tracer.span('topdown: render visible map'):
+                            self.__render_topdown_visible_map = self.__mapper.render_o3d_image(
+                                self.__gaussian_for_render, topdown_cam, scale_modifier=0.01, prepared=self.__gaussian_for_render_prepared)
+                        self.__topdown_visible_key = visible_key
+                        self.__verify_stats['renders_done'] += 1
+                    else:
+                        self.__verify_stats['renders_reused'] += 1
+                    if self.__save_runtime_data and (self.__gaussian_for_render_key, 'saved', camera_key) != self.__topdown_saved_key:
                         # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution (visualisation only)
                         timing_topdown_saved = start_timing()
                         trace_topdown_saved = tracer.begin()
                         self.__render_topdown_visible_map_saved = self.__mapper.render_o3d_image(
-                            self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01)
+                            self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01, prepared=self.__gaussian_for_render_prepared)
+                        self.__topdown_saved_key = (self.__gaussian_for_render_key, 'saved', camera_key)
                         topdown_saved_ms = end_timing(*timing_topdown_saved)
                         tracer.finish('topdown_render_saved', trace_topdown_saved, step=frame_id)
+                    if self.__verify_topdown:
+                        self.__verify_topdown_renders(topdown_cam)
                     self.__use_gaussian_condition.release()
                 rerender_topdown_flag = True
             topdown_render_ms = end_timing(*timing_topdown_render)
@@ -1283,6 +1321,10 @@ class Visualizer:
             f.write(manifest_json)
         self.traing_finished = True
         self.__mapper.post_processing()
+        if self.__verify_topdown:
+            Log(f'Top-down verify: {self.__verify_stats}', tag='ActiveSplat')
+        else:
+            Log(f'Top-down renders: {self.__verify_stats["renders_done"]} done, {self.__verify_stats["renders_reused"]} reused', tag='ActiveSplat')
         Log('Saving scene data finished')
         
         if os.path.exists(self.__dataset_config.scene_mesh_url):
@@ -1784,12 +1826,16 @@ class Visualizer:
         if self.__gaussian_packet.has_gaussians:
             with self.__use_gaussian_condition:
                 self.__use_gaussian_condition.acquire()
-                self.__gaussian_for_render = {k: v.clone() for k, v in self.__gaussian_packet.params.items()}
-                self.__gaussian_for_render = self.__cut_gaussian_by_height(
-                                                    self.__gaussian_for_render, 
-                                                    self.__height_direction_lower_bound_slider.double_value if not self.__hide_windows else self.__open3d_gui_widget_last_state['height_direction_bound_slider'][0], 
-                                                    self.__height_direction_upper_bound_slider.double_value if not self.__hide_windows else self.__open3d_gui_widget_last_state['height_direction_bound_slider'][1])
-                
+                bounds = (self.__height_direction_lower_bound_slider.double_value if not self.__hide_windows else self.__open3d_gui_widget_last_state['height_direction_bound_slider'][0],
+                          self.__height_direction_upper_bound_slider.double_value if not self.__hide_windows else self.__open3d_gui_widget_last_state['height_direction_bound_slider'][1])
+                snapshot_key = (self.__params_version, bounds)
+                # NOTE: the snapshot only changes when the mapper has updated the map (or the height sliders moved), so it is not re-copied on every pass of the loop
+                if snapshot_key != self.__gaussian_for_render_key:
+                    self.__gaussian_for_render = self.__cut_gaussian_by_height(dict(self.__gaussian_packet.params), bounds[0], bounds[1])
+                    self.__gaussian_for_render_key = snapshot_key
+                    self.__gaussian_for_render_prepared = None
+                if self.__verify_topdown:
+                    self.__verify_snapshot(bounds)
                 self.gaussians_num = self.__gaussian_packet.params['means3D'].shape[0]
                 self.__use_gaussian_condition.release()
 
@@ -2464,6 +2510,31 @@ class Visualizer:
         mesh.remove_vertices_by_mask(vertices_condition)
         return mesh
     
+    def __verify_snapshot(self, bounds) -> None:
+        '''ACTIVESPLAT_VERIFY_TOPDOWN: the snapshot must equal what the original code took here, a fresh clone-and-cut of the live map.'''
+        reference = self.__cut_gaussian_by_height({k: v.clone() for k, v in self.__gaussian_packet.params.items()}, bounds[0], bounds[1])
+        same = all(torch.equal(reference[k], self.__gaussian_for_render[k]) for k in ['means3D', 'rgb_colors', 'unnorm_rotations', 'logit_opacities', 'log_scales'])
+        self.__verify_stats['snapshot_checked'] += 1
+        if not same:
+            self.__verify_stats['snapshot_mismatch'] += 1
+            Log('Top-down verify: the cached snapshot differs from a fresh copy of the map', tag='ActiveSplat')
+
+    def __verify_topdown_renders(self, topdown_cam) -> None:
+        '''ACTIVESPLAT_VERIFY_TOPDOWN: renders the free, visible and saved maps the original way (full copy, two rasterizer passes, nothing cached) and compares.'''
+        stats = self.__verify_stats
+        free_reference = self.__cut_gaussian_by_height({k: v.clone() for k, v in self.__gaussian_packet.params.items()}, self.__agent_head, self.__agent_foot - self.__agent_foot_adjust)
+        references = {
+            'free': (self.__render_topdown_free_map, self.__mapper.render_o3d_image(free_reference, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True, fast=False)),
+            'visible': (self.__render_topdown_visible_map, self.__mapper.render_o3d_image(self.__gaussian_for_render, topdown_cam, scale_modifier=0.01, fast=False))}
+        if self.__save_runtime_data:
+            references['saved'] = (self.__render_topdown_visible_map_saved, self.__mapper.render_o3d_image(
+                self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01, fast=False))
+        for name, (used, reference) in references.items():
+            stats[f'{name}_checked'] += 1
+            if not np.array_equal(used, reference):
+                stats[f'{name}_mismatch'] += 1
+                Log(f'Top-down verify: the {name} map differs (max abs diff {np.abs(used.astype(np.float64) - reference.astype(np.float64)).max():.3g})', tag='ActiveSplat')
+
     def __cut_gaussian_by_height(self, gaussian_params:Dict[str, torch.Tensor], upper_limit, lower_limit) -> Dict[str, torch.Tensor]:
         gauss_condition = torch.logical_or(
             -gaussian_params['means3D'][:,1] < upper_limit,

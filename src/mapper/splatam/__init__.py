@@ -199,7 +199,7 @@ class SplaTAM:
         _, _, view_c2w = self.__get_np_data(batch)
         view_w2c =  np.linalg.inv(view_c2w)
         
-        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c)
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=False)
         
         k = copy.deepcopy(self.__rgbd_sensor.intrinsics)
         viz_cfg = copy.deepcopy(self.config['viz'])
@@ -689,7 +689,7 @@ class SplaTAM:
         _, _, view_c2w = self.__get_np_data(batch)
         view_w2c =  np.linalg.inv(view_c2w)
         
-        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c)
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=False)
         
         k = copy.deepcopy(self.__rgbd_sensor.intrinsics)
         viz_cfg = copy.deepcopy(self.config['viz'])
@@ -714,7 +714,10 @@ class SplaTAM:
         return color_vis, depth_vis
     
     @torch.no_grad()
-    def render_o3d_image(self, params:dict, current_cam:Camera, scale_modifier=1.0, gaussian_color_type:GaussianColorType=GaussianColorType.Color, is_original=False):
+    def render_o3d_image(self, params:dict, current_cam:Camera, scale_modifier=1.0, gaussian_color_type:GaussianColorType=GaussianColorType.Color, is_original=False,
+                         prepared:dict=None, fast=True):
+        '''fast: only the image pass of the rasterizer (this function never uses the silhouette); fast=False is the original two-pass render, kept as the
+        reference for ACTIVESPLAT_VERIFY_TOPDOWN. prepared: prepare_render_params(params), to share the camera-independent work between renders of one map.'''
         view_w2c_gl = torch.eye(4).cuda().float()
         view_w2c_gl[:3, :3] = current_cam.R
         view_w2c_gl[:3, 3] = current_cam.T
@@ -722,7 +725,7 @@ class SplaTAM:
         view_w2c_gl = view_w2c_gl.detach().cpu().numpy()
         view_w2c = view_w2c_gl @ OPENCV_TO_OPENGL
         
-        scene_data, scene_depth_data = get_rendervars(params, view_w2c)
+        scene_data, scene_depth_data = get_rendervars(params, view_w2c, with_depth_sil=not fast, prepared=prepared if fast else None)
         
         k = copy.deepcopy(self.__rgbd_sensor.intrinsics)
         k[0, 0] = current_cam.fx
@@ -787,7 +790,7 @@ class SplaTAM:
             seen, depth = self.__oracle.look_around_view(view_c2w, intrinsics, cfg['viz_w'], cfg['viz_h'])
             rgb = np.repeat((seen[..., None] * 255).astype(np.uint8), 3, axis=2)
             return rgb, seen, depth
-        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c)
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=False)
         im, depth, opacity, _, = render(view_w2c, intrinsics, scene_data, scene_depth_data, cfg, scale_modifier)
         im_np = (
             (torch.clamp(im, min=0, max=1.0) * 255)
