@@ -27,7 +27,7 @@ from mapper import get_mapper, MapperState, GaussianColorType, MapperType
 from mapper.splatam.utils.graphics_utils import fov2focal
 from utils.gui_utils import OPENCV_TO_OPENGL, GaussianPacket, PoseChangeType, vfov_to_hfov, create_frustum, rgbd_to_pointcloud, pose_to_matrix, matrix_to_pose, rotation_matrix_from_vectors, c2w_topdown_to_world, c2w_world_to_topdown, is_pose_changed, get_horizon_bound_topdown, update_traj, config_topdown_info, visualize_agent, translations_world_to_topdown
 from utils.logging_utils import Log
-from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder
+from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder, tracer
 from utils.camera_utils import Camera
 from dataloader.dataloader import HabitatDataset
 from oracle import OracleScene, observable_cache_path, load_observable
@@ -358,6 +358,7 @@ class Visualizer:
         self.__results_dir = self.__dataset_config.results_dir
         os.makedirs(self.__results_dir, exist_ok=True)
         timing_recorder.open(self.__results_dir)
+        tracer.open(self.__results_dir, 'mapper node')
         pose_error_recorder.open(self.__results_dir)
         oracle_coverage_recorder.open(self.__results_dir)
         self.__oracle = None
@@ -904,6 +905,7 @@ class Visualizer:
         self.__rgb_opacity_images = {}
         
         while self.__global_state != GlobalState.QUIT:
+            trace_iteration = tracer.begin()
             if self.__global_state in [GlobalState.REPLAY, GlobalState.AUTO_PLANNING, GlobalState.MANUAL_PLANNING, GlobalState.MANUAL_CONTROL]:
                 # NOTE: Get observation
                 if self.__frames_cache.empty() and (frame_id is not None):
@@ -922,15 +924,18 @@ class Visualizer:
                     self.__traj_info["step_times"] = frame_id
                     if self.__oracle is not None:
                         timing_oracle = start_timing(use_cuda=False)
+                        trace_oracle = tracer.begin()
                         new_samples = self.__oracle.observe(
                             frame_current['c2w'].detach().cpu().numpy().astype(np.float64) @ OPENCV_TO_OPENGL, self.__rgbd_sensor.intrinsics,
                             self.__rgbd_sensor.width, self.__rgbd_sensor.height, self.__depth_limit[0], self.__depth_limit[1])
                         oracle_coverage_recorder.write_row([frame_id, new_samples, self.__oracle.seen_count, f'{self.__oracle.coverage():.5f}'])
-                        timing_recorder.record('oracle_observe', frame_id, end_timing(*timing_oracle, use_cuda=False))
+                        timing_recorder.record('oracle_observe', frame_id, end_timing(*timing_oracle, use_cuda=False), trace=False)
+                        tracer.finish('oracle_observe', trace_oracle, step=frame_id)
                 assert frame_id is not None, 'Initialize failed'
             else:
                 frame_current = None
             timing_mapper_run = start_timing()
+            trace_mapper_run = tracer.begin()
             if self.__global_state in [GlobalState.REPLAY, GlobalState.AUTO_PLANNING, GlobalState.MANUAL_PLANNING, GlobalState.MANUAL_CONTROL]:
                 mapper_state = self.__mapper.run(frame_current)
                 if self.__high_loss_samples_pose_pub is not None and self.__mapper.high_loss_samples_pose_c2w is not None:
@@ -949,7 +954,8 @@ class Visualizer:
                 mapper_state = MapperState.IDLE
             mapper_run_ms = end_timing(*timing_mapper_run)
             if frame_current is not None:
-                timing_recorder.record('mapper', frame_id, mapper_run_ms)
+                timing_recorder.record('mapper', frame_id, mapper_run_ms, trace=False)
+                tracer.finish('mapper', trace_mapper_run, step=frame_id)
             Log(f'Mapper run used {mapper_run_ms:.2f} ms')
                 
             if self.__save_runtime_data and ((frame_id % 100 == 0 and frame_id > 0)):
@@ -959,6 +965,7 @@ class Visualizer:
                 self.__dynamic_height_box.checked = True
                 
             timing_topdown_render = start_timing()
+            trace_topdown_render = tracer.begin()
             topdown_saved_ms = 0.0
             # NOTE: Render topdown map
             rerender_topdown_flag = False
@@ -977,17 +984,20 @@ class Visualizer:
                     if self.__save_runtime_data:
                         # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution (visualisation only)
                         timing_topdown_saved = start_timing()
+                        trace_topdown_saved = tracer.begin()
                         self.__render_topdown_visible_map_saved = self.__mapper.render_o3d_image(
                             self.__gaussian_for_render, self.get_topdown_cam(self.TOPDOWN_SAVE_SCALE), scale_modifier=0.01)
                         topdown_saved_ms = end_timing(*timing_topdown_saved)
+                        tracer.finish('topdown_render_saved', trace_topdown_saved, step=frame_id)
                     self.__use_gaussian_condition.release()
                 rerender_topdown_flag = True
             topdown_render_ms = end_timing(*timing_topdown_render)
             if rerender_topdown_flag:
                 # NOTE: 'topdown_render' = the free and visible maps the planner uses; the high-resolution saved image is its own (visualisation) stage
-                timing_recorder.record('topdown_render', frame_id, topdown_render_ms - topdown_saved_ms)
+                timing_recorder.record('topdown_render', frame_id, topdown_render_ms - topdown_saved_ms, trace=False)
                 if topdown_saved_ms > 0:
-                    timing_recorder.record('topdown_render_saved', frame_id, topdown_saved_ms)
+                    timing_recorder.record('topdown_render_saved', frame_id, topdown_saved_ms, trace=False)
+                tracer.finish('topdown_render', trace_topdown_render, step=frame_id)
             Log(f'Topdown render used {topdown_render_ms:.2f} ms')
             # NOTE: Update topdown map
             if (self.__get_topdown_flag in [self.QueryTopdownFlag.ARRIVED, self.QueryTopdownFlag.RUNNING]) or \
@@ -1039,6 +1049,7 @@ class Visualizer:
                         os.makedirs(current_vis_data_dir, exist_ok=True)
                     self.__rgb_opacity_images = {} # node_id: rgb_opacity_vis
                     timing_get_visibility = start_timing()
+                    trace_visibility = tracer.begin()
                     for idx, node in enumerate(self.__mapper.voronoi_nodes):
                         cur_id = node['id']
                         node_position = node['position']
@@ -1050,12 +1061,14 @@ class Visualizer:
                             self.__rgb_opacity_images[cur_id] = cv2.cvtColor(rgb_opacity_vis,cv2.COLOR_RGB2BGR)
                             
                     visibility_ms = end_timing(*timing_get_visibility)
-                    timing_recorder.record('visibility_global', frame_id, visibility_ms)
+                    timing_recorder.record('visibility_global', frame_id, visibility_ms, trace=False)
+                    tracer.finish('visibility_global', trace_visibility, step=frame_id, nodes=len(self.__mapper.voronoi_nodes))
                     Log(f'Get global visibility used {visibility_ms:.2f} ms', tag='ActiveSplat')
                         
                 elif self.__get_visibility_flag == self.QueryVisibilityFlag.LOCAL:
                     # NOTE: Local visibility
                     timing_get_visibility = start_timing()
+                    trace_visibility = tracer.begin()
                     self.local_node = dict()
                     rgb_opacity_vis, self.local_node['invisibility'], self.local_node['best_pose'] = self.__mapper.get_local_invisibility(
                         frame_last_received, scale_modifier=1.0, show_image=(not self.__hide_windows))
@@ -1070,7 +1083,8 @@ class Visualizer:
                         self.rotation_frustum = self.update_target_frustums([pose_data_o3d], ROTATION_FRUSTUM['color'])
                         rerender_rotation_frustum_flag = True
                     visibility_ms = end_timing(*timing_get_visibility)
-                    timing_recorder.record('visibility_local', frame_id, visibility_ms)
+                    timing_recorder.record('visibility_local', frame_id, visibility_ms, trace=False)
+                    tracer.finish('visibility_local', trace_visibility, step=frame_id)
                     Log(f'Get local visibility used {visibility_ms:.2f} ms', tag='ActiveSplat')
                     
                 if (self.__get_visibility_flag == self.QueryVisibilityFlag.RUNNING) or\
@@ -1203,9 +1217,11 @@ class Visualizer:
                 if (frame_last_received is not None and\
                     frame_id > rendering_rgbd_last_frame_id):
                     timing_render_rgbd = start_timing()
+                    trace_render_rgbd = tracer.begin()
                     color_vis, depth_vis = self.__mapper.render_rgbd(frame_last_received, scale_modifier=1.0)
                     rgbd = np.hstack((color_vis, depth_vis))
-                    timing_recorder.record('render_rgbd', frame_id, end_timing(*timing_render_rgbd))
+                    timing_recorder.record('render_rgbd', frame_id, end_timing(*timing_render_rgbd), trace=False)
+                    tracer.finish('render_rgbd', trace_render_rgbd, step=frame_id)
                     if self.__save_runtime_data:
                         cv2.imwrite(str(self.render_rgbd_dir) + f'/{frame_id}.png', cv2.cvtColor(rgbd, cv2.COLOR_BGR2RGB))
                         self.__runtime_data_info['current_vis_data']['rgb_render'] = color_vis
@@ -1229,6 +1245,7 @@ class Visualizer:
             if self.__local_dataset is not None:
                 if self.__local_dataset_pose_ros is not None:
                     self.__local_dataset_pose_pub.publish(self.__local_dataset_pose_ros)
+            tracer.finish('loop iteration', trace_iteration, frame=frame_id, new_frame=frame_current is not None)
             time.sleep(0.05)
             
         # NOTE: Save constructed scene data
@@ -1258,7 +1275,8 @@ class Visualizer:
                         rerender_global_visibility_map_flag:bool
                         ):
         if self.__global_state in [GlobalState.REPLAY, GlobalState.AUTO_PLANNING, GlobalState.MANUAL_PLANNING, GlobalState.MANUAL_CONTROL]:
-            self.receive_data(self.q_main2vis)
+            with tracer.span('receive_data'):
+                self.receive_data(self.q_main2vis)
             if not self.__hide_windows:
                 if self.__view_gaussians_box.checked == True:
                     self.render_gaussian()
@@ -2248,6 +2266,7 @@ class Visualizer:
     def __get_dataset_config(self, req:GetDatasetConfigRequest) -> GetDatasetConfigResponse:
         return self.__dataset_config
     
+    @tracer.traced('service get_topdown')
     def __get_topdown(self, req:GetTopdownRequest) -> GetTopdownResponse:
         with self.__get_topdown_condition:
             if req.arrived_flag:
@@ -2273,6 +2292,7 @@ class Visualizer:
             topdown_response.horizon_bound_max.z = self.__topdown_info['horizon_bbox'][1][2]
         return topdown_response
     
+    @tracer.traced('service get_opacity')
     def __get_opacity(self, req:GetOpacityRequest) -> GetOpacityResponse:
         with self.__get_opacity_condition:
             if req.arrived_flag:

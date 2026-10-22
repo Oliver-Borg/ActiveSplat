@@ -29,7 +29,7 @@ from utils.logging_utils import Log
 from utils.gui_utils import GaussianPacket
 from utils.camera_utils import Camera
 from utils.pose_utils import mat_to_q_pos, rot_axis
-from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder
+from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder, tracer
 
 @dataclass
 class sample():
@@ -492,6 +492,7 @@ class SplaTAM:
 
         # NOTE: Mapping
         timing_mapping = start_timing()
+        trace_mapping = tracer.begin()
         mapping_start_time = time.time()
         if iter_per_frame > 0:
             progress_bar = tqdm(range(iter_per_frame), desc=f"Mapping Time Step: {cur_frame_id}")
@@ -541,7 +542,8 @@ class SplaTAM:
             self.mapping_iter_time_count += 1
         if iter_per_frame > 0:
             mapping_ms = end_timing(*timing_mapping)
-            timing_recorder.record('optimise', cur_frame_id, mapping_ms)
+            timing_recorder.record('optimise', cur_frame_id, mapping_ms, trace=False)
+            tracer.finish('optimise', trace_mapping, step=cur_frame_id)
             Log(f'Mapping Iteration Time: {mapping_ms:.2f} ms')
             progress_bar.close()
             # Update the runtime numbers

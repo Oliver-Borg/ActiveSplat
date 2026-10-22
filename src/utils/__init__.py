@@ -7,6 +7,8 @@ from typing import List, Tuple, Union
 import torch
 import numpy as np
 
+from .trace import tracer
+
 PROJECT_NAME = 'ActiveSplat'
 
 OPENCV_TO_OPENGL = np.array(
@@ -96,8 +98,11 @@ class TimingRecorder(CsvRecorder):
     def __init__(self, file_name:str='timing.csv') -> None:
         super().__init__(file_name, ['stage', 'step', 'ms'])
         
-    def record(self, stage:str, step:int, elapsed_ms:float) -> None:
+    def record(self, stage:str, step:int, elapsed_ms:float, trace:bool=True) -> None:
+        '''trace=False when the caller writes the stage's span itself (a true start and nesting), or the time is derived and has no span.'''
         self.write_row([stage, step, f'{elapsed_ms:.3f}'])
+        if trace:
+            tracer.complete(stage, elapsed_ms, step=step)
 
 timing_recorder = TimingRecorder()
 # NOTE: the planner is its own process, so it writes its own file (two processes sharing one file would race on the header)

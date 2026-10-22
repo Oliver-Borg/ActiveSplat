@@ -30,7 +30,7 @@ import rospy
 from std_msgs.msg import Int32, Bool
 from geometry_msgs.msg import PoseStamped, Twist, Pose, Point
 
-from utils import PROJECT_NAME, GlobalState, planner_timing_recorder
+from utils import PROJECT_NAME, GlobalState, planner_timing_recorder, tracer
 from utils.logging_utils import Log
 from utils.gui_utils import PoseChangeType, c2w_world_to_topdown, c2w_topdown_to_world, is_pose_changed, get_horizon_bound_topdown
 from dataloader import PoseDataType, convert_to_c2w_opencv
@@ -161,7 +161,8 @@ class PlannerNode:
             if loop_mark is not None:
                 # NOTE: the rest of a loop iteration (node selection, path planning, ...) is the planner's decision logic
                 now = time.perf_counter()
-                planner_timing_recorder.record('plan_logic', self.__pose_count, (now - loop_mark[0] - (self.__tracked_seconds - loop_mark[1])) * 1000)
+                planner_timing_recorder.record('plan_logic', self.__pose_count, (now - loop_mark[0] - (self.__tracked_seconds - loop_mark[1])) * 1000, trace=False)
+                tracer.finish('planner iteration', loop_mark[2], step=self.__pose_count)
             loop_mark = None
             if self.__global_state not in self.__ENABLE_STATES:
                 if self.__global_state == GlobalState.REPLAY:
@@ -171,7 +172,7 @@ class PlannerNode:
                     self.__rotation_arrived_flag = True
                 continue
             else:
-                loop_mark = (time.perf_counter(), self.__tracked_seconds)
+                loop_mark = (time.perf_counter(), self.__tracked_seconds, tracer.begin())
                 if self.__bootstrap_flag:
                     set_mapper_request:SetMapperRequest = SetMapperRequest()
                     set_mapper_request.kf_every = 1
@@ -949,6 +950,7 @@ class PlannerNode:
         self.__results_dir = self.__dataset_config.results_dir
         os.makedirs(self.__results_dir, exist_ok=True)
         planner_timing_recorder.open(self.__results_dir)
+        tracer.open(self.__results_dir, 'planner node')
         self.__save_topdown_map_count = 0
         if self.__save_runtime_data:
             self.__topdown_map_dir = os.path.join(self.__results_dir, 'topdown_map')
@@ -1035,20 +1037,24 @@ class PlannerNode:
     def __timed_service(self, stage:str, service, request):
         '''Calls a mapper service, recording how long the planner waited for it.'''
         start = time.perf_counter()
+        token = tracer.begin()
         try:
             return service(request)
         finally:
             elapsed = time.perf_counter() - start
             self.__tracked_seconds += elapsed
-            planner_timing_recorder.record(stage, self.__pose_count, elapsed * 1000)
+            planner_timing_recorder.record(stage, self.__pose_count, elapsed * 1000, trace=False)
+            tracer.finish(stage, token, step=self.__pose_count)
 
     def __get_topdown(self) -> None:
         # NOTE: planner compute of this call = everything except the waits on the mapper's services (topdown render, opacity)
         start, tracked_before = time.perf_counter(), self.__tracked_seconds
-        self.__get_topdown_impl()
+        with tracer.span('get_topdown', step=self.__pose_count):
+            self.__get_topdown_impl()
         cpu = time.perf_counter() - start - (self.__tracked_seconds - tracked_before)
         self.__tracked_seconds += cpu
-        planner_timing_recorder.record('plan_topdown', self.__pose_count, cpu * 1000)
+        # NOTE: derived (the call minus its waits), so it has no span of its own; the get_topdown span contains the waits and the compute
+        planner_timing_recorder.record('plan_topdown', self.__pose_count, cpu * 1000, trace=False)
 
     def __get_topdown_impl(self) -> None:
         try:

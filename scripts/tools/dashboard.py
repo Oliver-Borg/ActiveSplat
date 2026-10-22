@@ -15,7 +15,7 @@ from PIL import Image
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from export_ply import export_ply
-from timeline import build_interactive_figure as build_timeline_figure
+from timeline import build_interactive_figure, build_trace_figure, export_chrome_trace, has_trace
 
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 
@@ -844,11 +844,13 @@ def build_app(results_dir:str) -> gr.Blocks:
                 timing_breakdown_plot = gr.BarPlot(x='part', y='seconds', title='Where the wall time went', height=300, sort='-y')
                 timing_steps_plot = gr.LinePlot(x='step', y='ms', color='stage', title='Time per step', height=360)
             with gr.Tab('Timeline') as timeline_tab:
-                gr.Markdown('Trace chart: one row per stage, one bar per event (start = end time minus duration). Hover a bar for its step and duration, '
-                            'drag to zoom, double-click to reset, drag the slider below to move the window, click a legend entry to hide a row (or double-click to isolate it). '
-                            'Blue = mapper process, orange = planner process (faded = waiting), grey hatched = visualisation/debug only. Planner rows need `planner_timing.csv`.')
+                gr.Markdown('Trace chart. Runs with `trace_*.jsonl` show **real spans**: one row per thread, grouped by process (mapper node, planner node), so spans that '
+                            'overlap in time run in parallel, and a span nested inside another sits on the lane below it. Hover for step and duration, drag to zoom, double-click to reset, '
+                            'drag the slider to move the window, click a legend entry to hide a span name. Faded = waiting on another thread/process, grey hatched = visualisation/debug only. '
+                            'Older runs only have `timing.csv`: one row per stage, no threads or nesting. The file below opens in [Perfetto](https://ui.perfetto.dev).')
                 timeline_button = gr.Button('Draw', variant='primary')
                 timeline_plot = gr.Plot(label='Timeline')
+                timeline_file = gr.File(label='Perfetto / chrome://tracing file (trace.json)', interactive=False)
             with gr.Tab('Pose errors'):
                 pose_error_markdown = gr.Markdown()
                 pose_rot_plot = gr.LinePlot(x='step', y='error', color='statistic', title='VGGT-Ω rotation error per mapped frame (°)', height=320)
@@ -893,11 +895,15 @@ def build_app(results_dir:str) -> gr.Blocks:
         coverage_button.click(lambda names: coverage_curves(results_dir, names), inputs=coverage_select, outputs=[coverage_plot, coverage_table])
         def draw_timeline(run_name:str):
             run_dir = os.path.join(results_dir, run_name or '')
-            if not run_name or not os.path.isfile(os.path.join(run_dir, 'timing.csv')):
-                return None
-            return build_timeline_figure(run_dir)
-        timeline_button.click(draw_timeline, inputs=run_dropdown, outputs=timeline_plot)
-        timeline_tab.select(draw_timeline, inputs=run_dropdown, outputs=timeline_plot)
+            if not run_name or not os.path.isdir(run_dir):
+                return None, None
+            if has_trace(run_dir):
+                return build_trace_figure(run_dir), export_chrome_trace(run_dir, os.path.join(run_dir, 'trace.json'))
+            if os.path.isfile(os.path.join(run_dir, 'timing.csv')):
+                return build_interactive_figure(run_dir), None
+            return None, None
+        timeline_button.click(draw_timeline, inputs=run_dropdown, outputs=[timeline_plot, timeline_file])
+        timeline_tab.select(draw_timeline, inputs=run_dropdown, outputs=[timeline_plot, timeline_file])
         coverage_refresh.click(lambda: gr.update(choices=coverage_choices(results_dir)), outputs=coverage_select)
     return app
 
