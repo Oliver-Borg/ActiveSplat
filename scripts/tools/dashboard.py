@@ -32,6 +32,7 @@ VIDEO_SOURCES = [
     ('topdown_map', 'Top-down map (planner view)', 'topdown_map', 'folder'),
     ('topdown_visibility', 'Top-down visibility map', os.path.join('runtime_data', 'topdown_visible_map'), 'folder')]
 VIDEO_FPS_CHOICES = [10, 20, 30, 60]
+IMAGE_SUFFIXES = ('.jpg', '.png')
 # NOTE: stages written by utils.timing_recorder
 TIMING_STAGES = ['capture', 'mapper', 'optimise', 'topdown_render', 'visibility_global', 'visibility_local', 'render_rgbd', 'topdown_render_saved', 'oracle_observe', 'vggt_omega', 'seed_points', 'plan_topdown', 'plan_logic', 'topdown_wait', 'opacity_wait']
 # NOTE: (timeline column, label, what it is) of the compute the drone waits for after each capture
@@ -60,8 +61,8 @@ def read_run_metadata(run_dir:str) -> dict:
         started = datetime.datetime.strptime(name[:19], '%Y-%m-%d_%H-%M-%S')
     except ValueError:
         started = None
-    first_rgb = os.path.join(run_dir, 'gaussians_data', 'rgb', '0000.png')
-    resolution = '{}×{}'.format(*Image.open(first_rgb).size) if os.path.isfile(first_rgb) else '?'
+    first_rgb = find_image(os.path.join(run_dir, 'gaussians_data', 'rgb'), '0000')
+    resolution = '{}×{}'.format(*Image.open(first_rgb).size) if first_rgb else '?'
     actions_path = os.path.join(run_dir, 'actions.txt')
     steps = 0
     if os.path.isfile(actions_path):
@@ -191,14 +192,22 @@ def coverage_curves(results_dir:str, names:list) -> tuple:
 def list_images(folder:str) -> list:
     if not os.path.isdir(folder):
         return []
-    return sorted(os.path.join(folder, name) for name in os.listdir(folder) if name.lower().endswith(('.png', '.jpg')))
+    return sorted(os.path.join(folder, name) for name in os.listdir(folder) if name.lower().endswith(IMAGE_SUFFIXES))
 
 def list_frames(folder:str) -> list:
-    '''Frames named <step>.png in step order (list_images sorts as text, so 1000.png would come before 2.png).'''
+    '''Frames named <step>.jpg or <step>.png (older runs) in step order (list_images sorts as text, so 1000 would come before 2).'''
     if not os.path.isdir(folder):
         return []
-    names = [name for name in os.listdir(folder) if name.lower().endswith('.png') and name[:-4].isdigit()]
-    return [os.path.join(folder, name) for name in sorted(names, key=lambda name: int(name[:-4]))]
+    names = [name for name in os.listdir(folder) if name.lower().endswith(IMAGE_SUFFIXES) and os.path.splitext(name)[0].isdigit()]
+    return [os.path.join(folder, name) for name in sorted(names, key=lambda name: int(os.path.splitext(name)[0]))]
+
+def find_image(folder:str, stem:str):
+    '''<folder>/<stem>.jpg, or .png for runs saved before JPEG output; None if neither exists.'''
+    for suffix in IMAGE_SUFFIXES:
+        path = os.path.join(folder, stem + suffix)
+        if os.path.isfile(path):
+            return path
+    return None
 
 def video_path(run_dir:str, name:str, fps:int) -> str:
     return os.path.join(run_dir, 'videos', f'{name}_{fps}fps.mp4')
@@ -699,8 +708,8 @@ def build_app(results_dir:str) -> gr.Blocks:
             rgb,
             depth,
             keyframe,
-            optional_image(os.path.join(run.run_dir, 'visited_map.png')),
-            optional_image(os.path.join(run.run_dir, 'topdown_free_map.png')),
+            find_image(run.run_dir, 'visited_map'),
+            find_image(run.run_dir, 'topdown_free_map'),
             run.trajectory_frame(),
             run.eval_frame(),
             *runtime_galleries,

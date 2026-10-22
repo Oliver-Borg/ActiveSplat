@@ -4,12 +4,20 @@ import time
 from enum import Enum
 from typing import List, Tuple, Union
 
+import cv2
 import torch
 import numpy as np
 
 from .trace import tracer
 
 PROJECT_NAME = 'ActiveSplat'
+
+# NOTE: images saved for looking at (maps, renders, comparison panels) are JPEGs; depth and anything read back as data stays lossless
+JPEG_QUALITY = 90
+
+def imwrite_jpeg(path:str, image_bgr:np.ndarray) -> None:
+    if not cv2.imwrite(path, image_bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]):
+        raise IOError(f'Could not write {path}')
 
 OPENCV_TO_OPENGL = np.array(
     [

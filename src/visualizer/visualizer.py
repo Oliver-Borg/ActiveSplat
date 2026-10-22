@@ -2,6 +2,7 @@ import os
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 import json
 import threading
+import traceback
 import time
 from enum import Enum
 from copy import deepcopy
@@ -26,8 +27,9 @@ from dataloader import RGBDSensor, PoseDataType,  load_scene_mesh, dataset_confi
 from mapper import get_mapper, MapperState, GaussianColorType, MapperType
 from mapper.splatam.utils.graphics_utils import fov2focal
 from utils.gui_utils import OPENCV_TO_OPENGL, GaussianPacket, PoseChangeType, vfov_to_hfov, create_frustum, rgbd_to_pointcloud, pose_to_matrix, matrix_to_pose, rotation_matrix_from_vectors, c2w_topdown_to_world, c2w_world_to_topdown, is_pose_changed, get_horizon_bound_topdown, update_traj, config_topdown_info, visualize_agent, translations_world_to_topdown
+from evaluation.image_eval import collect_novel_views, evaluate_view_sets, load_lpips, log_summaries, make_view
 from utils.logging_utils import Log
-from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder, tracer
+from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder, tracer, imwrite_jpeg
 from utils.camera_utils import Camera
 from dataloader.dataloader import HabitatDataset
 from oracle import OracleScene, observable_cache_path, load_observable
@@ -121,6 +123,14 @@ class Visualizer:
             self.__runtime_data_info = {"render_use_time": []}
         
         step_num = config['dataset']['step_num']
+        # NOTE: end-of-run image evaluation (see src/evaluation/image_eval.py); every setting is optional
+        self.__image_eval_settings = {'enabled': True, 'trajectory_stride': 5, 'novel_views': 100, 'novel_radius': 1.5, 'examples': 6, 'seed': 0,
+                                      **config.get('image_eval', {})}
+        self.__eval_trajectory_views = []
+        # NOTE: the simulator's render context belongs to the dataset thread, so that thread captures the novel views (it teleports the agent)
+        # just before it closes the simulator at the end of the run; the main thread then scores them against the final map
+        self.__eval_novel_views = []
+        self.__novel_views_ready = threading.Event()
         self.scene_id = 'None'
         if actions_url == 'None':
             self.__actions = None
@@ -920,6 +930,11 @@ class Visualizer:
                     else:
                         frame_id += 1
                     frame_current['frame_id'] = frame_id
+                    # NOTE: the real (simulator) view at this capture location, kept in memory for the end-of-run evaluation; taken before
+                    # the mapper moves the tensors to the GPU
+                    if self.__image_eval_settings['enabled'] and frame_id % self.__image_eval_settings['trajectory_stride'] == 0:
+                        self.__eval_trajectory_views.append(make_view(
+                            frame_id, frame_current['c2w'].numpy(), np.uint8(np.round(frame_current['rgb'].numpy() * 255)), frame_current['depth'].numpy()))
                     frame_last_received = frame_current.copy()
                     self.__traj_info["step_times"] = frame_id
                     if self.__oracle is not None:
@@ -1070,7 +1085,7 @@ class Visualizer:
                         if rgb_opacity_vis is not None:
                             with tracer.span('opacity image save', node=cur_id):
                                 if self.__save_runtime_data:
-                                    cv2.imwrite(os.path.join(current_vis_data_dir, f'{cur_id}.png'), rgb_opacity_vis)
+                                    imwrite_jpeg(os.path.join(current_vis_data_dir, f'{cur_id}.jpg'), rgb_opacity_vis)
                                 self.__rgb_opacity_images[cur_id] = cv2.cvtColor(rgb_opacity_vis,cv2.COLOR_RGB2BGR)
                             
                     visibility_ms = end_timing(*timing_get_visibility)
@@ -1237,7 +1252,7 @@ class Visualizer:
                     timing_recorder.record('render_rgbd', frame_id, end_timing(*timing_render_rgbd), trace=False)
                     tracer.finish('render_rgbd', trace_render_rgbd, step=frame_id)
                     if self.__save_runtime_data:
-                        cv2.imwrite(str(self.render_rgbd_dir) + f'/{frame_id}.png', cv2.cvtColor(rgbd, cv2.COLOR_BGR2RGB))
+                        imwrite_jpeg(str(self.render_rgbd_dir) + f'/{frame_id}.jpg', cv2.cvtColor(rgbd, cv2.COLOR_BGR2RGB))
                         self.__runtime_data_info['current_vis_data']['rgb_render'] = color_vis
                         self.__runtime_data_info['current_vis_data']['depth_render'] = depth_vis
                     if (not self.__hide_windows and self.__render_box.checked and\
@@ -1277,7 +1292,46 @@ class Visualizer:
                     'mesh_transform': self.__scene_mesh_transform.tolist()}
                 json.dump(gt_mesh_config, f, indent=4)
         set_planner_state_response:SetPlannerStateResponse = self.__set_planner_state_service(SetPlannerStateRequest(GlobalState.QUIT.value))
+        self.__evaluate_images()
         self.__close_all()
+
+    def __capture_novel_views(self) -> None:
+        '''Runs in the dataset thread at the end of the run: the simulator's views at random poses near the trajectory.'''
+        settings = self.__image_eval_settings
+        try:
+            trajectory_views = list(self.__eval_trajectory_views)
+            if settings['enabled'] and trajectory_views:
+                with tracer.span('capture novel views', views=settings['novel_views']):
+                    self.__eval_novel_views = collect_novel_views(self.__local_dataset, trajectory_views, settings['novel_views'], settings['novel_radius'], settings['seed'])
+        except Exception:
+            Log(f'Capturing novel views failed:\n{traceback.format_exc()}', tag='ActiveSplat')
+        finally:
+            self.__novel_views_ready.set()
+
+    def __evaluate_images(self) -> None:
+        '''Scores the final map: renders it at the captured poses and at the novel poses and compares with what the simulator rendered there.
+        Everything stays in memory; only image_metrics.{csv,json} and a few JPEG panels are written.'''
+        settings = self.__image_eval_settings
+        if not settings['enabled'] or self.__local_dataset is None or not self.__eval_trajectory_views:
+            return
+        try:
+            if not self.__novel_views_ready.wait(timeout=900):
+                raise TimeoutError('the dataset thread did not capture the novel views')
+            start = time.time()
+            with tracer.span('image evaluation', sync=True):
+                device = self.__device
+                render_config = {'viz_w': self.__rgbd_sensor.width, 'viz_h': self.__rgbd_sensor.height, 'viz_near': 0.01, 'viz_far': 100.0}
+                novel_views = self.__eval_novel_views
+                summaries = evaluate_view_sets(
+                    self.__results_dir, self.scene_id, self.__mapper.params, self.__mapper.intrinsics.detach().cpu().numpy(), render_config, load_lpips(device),
+                    {'trajectory': self.__eval_trajectory_views, 'novel': novel_views}, device,
+                    {'source': 'in-run', 'trajectory_stride': settings['trajectory_stride'], 'novel_radius_m': settings['novel_radius'], 'seed': settings['seed']},
+                    settings['examples'])
+            log_summaries(summaries)
+            Log(f'Image evaluation took {time.time() - start:.0f} s', tag='ActiveSplat')
+        except Exception:
+            # NOTE: a failed evaluation must not lose the run; evaluate offline with scripts/judges/eval_images.py
+            Log(f'Image evaluation failed:\n{traceback.format_exc()}', tag='ActiveSplat')
 
     def __update_ui_mapper(self,
                         frame_current:Union[None, Dict[str, Union[torch.Tensor, int]]],
@@ -1884,6 +1938,7 @@ class Visualizer:
                         movement_fail_times += 1
                     movement_fail_times_pub.publish(Int32(movement_fail_times))
                 self.__local_dataset_condition.notify_all()
+            self.__capture_novel_views()
             self.__local_dataset.close()
         
     def __update_ui_topdown(self):
@@ -1969,7 +2024,7 @@ class Visualizer:
                             np.int32(self.__current_horizon[1] * scale),
                             (255, 0, 0),
                             scale)
-                cv2.imwrite(os.path.join(self.__runtime_data_info['topdown_visible_map_dir'], f'{self.__traj_info["step_times"]}.png'), cv2.cvtColor(topdown_visible_map, cv2.COLOR_RGB2BGR))
+                imwrite_jpeg(os.path.join(self.__runtime_data_info['topdown_visible_map_dir'], f'{self.__traj_info["step_times"]}.jpg'), cv2.cvtColor(topdown_visible_map, cv2.COLOR_RGB2BGR))
             
         topdown_visible_map_binary_o3d = None
         if self.__topdown_info['visible_map_binary_cv2'] is not None:
@@ -2427,7 +2482,7 @@ class Visualizer:
             for key, value in self.__runtime_data_info['current_vis_data'].items():
                 if value.shape[2] == 3:
                     value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(f'{str(current_vis_data_dir)}/{key}.png', value)
+                imwrite_jpeg(f'{str(current_vis_data_dir)}/{key}.jpg', value)
         Log(f'Save current data done', tag='GUI')
         return
     

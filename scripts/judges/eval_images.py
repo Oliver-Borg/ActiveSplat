@@ -1,11 +1,7 @@
 #!/usr/bin/env python
-# Image-quality evaluation of the final Gaussian map against simulator ground truth.
-#
-# Two view sets are rendered from <run>/gaussians_data/params.npz and compared with what the simulator renders from the textured mesh:
-#   trajectory: the poses the agent visited (actions.txt replayed in the simulator). The map was optimised on these frames.
-#   novel:      random poses near the trajectory that the mapper never saw, which tests the map itself.
-# Metrics are on the full image, so regions the map does not cover count against it; psnr_mapped and coverage separate
-# "missing" from "blurry".
+# Offline image-quality evaluation of a finished run (the visualizer now does this itself at the end of a run; see src/evaluation/image_eval.py
+# for the metrics). The map is read from <run>/gaussians_data/params.npz and compared with ground truth from a replay of actions.txt
+# (trajectory views) and teleports near the trajectory (novel views) in a fresh simulator.
 import os
 import sys
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
@@ -13,26 +9,17 @@ SRC_PATH = os.path.abspath(os.path.join(PACKAGE_PATH, 'src'))
 sys.path.append(PACKAGE_PATH)
 sys.path.append(SRC_PATH)
 import argparse
-import csv
 import json
 import time
 from typing import Dict, List, Tuple
 
 import numpy as np
-import quaternion
 import torch
-from PIL import Image
 
-from utils import PROJECT_NAME, OPENCV_TO_OPENGL
+from utils import PROJECT_NAME
 from utils.logging_utils import Log
 from dataloader.dataloader import get_dataset
-from habitat.sims.habitat_simulator.actions import _DefaultHabitatSimActions
-from mapper.splatam.splatam import render, get_rendervars
-from mapper.splatam.utils.slam_external import calc_ssim
-
-METRIC_NAMES = ['psnr', 'ssim', 'lpips', 'psnr_mapped', 'coverage', 'depth_l1_m']
-# NOTE: pixels with rendered opacity above this count as covered by the map
-COVERED_OPACITY = 0.5
+from evaluation.image_eval import collect_novel_views, evaluate_view_sets, load_lpips, log_summaries, make_view
 
 def load_params(params_path:str, device:torch.device) -> Tuple[Dict[str, torch.Tensor], dict]:
     data = np.load(params_path)
@@ -47,95 +34,34 @@ def quaternion_to_matrix(q:np.ndarray) -> np.ndarray:
         [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
         [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]])
 
-def frame_to_w2c(frame:dict) -> np.ndarray:
-    # NOTE: same conversion as the mapper (SplaTAM.__get_np_data): the sensor c2w is OpenGL, the renderer wants OpenCV
-    return np.linalg.inv(frame['c2w'].astype(np.float64) @ OPENCV_TO_OPENGL)
-
 def collect_trajectory_views(dataset, actions:List[int], stride:int) -> List[dict]:
     '''Replay the actions (as scripts/judges/eval_actions.py does) and keep every stride-th frame.'''
     views = []
     frame = dataset.get_frame()
-    views.append({'step': 0, 'w2c': frame_to_w2c(frame), 'rgb': frame['rgb'], 'depth': frame['depth']})
+    views.append(make_view(0, frame['c2w'], frame['rgb'], frame['depth']))
     for step, action in enumerate(actions, start=1):
         dataset._sim.step(action)
         frame = dataset.get_frame()
         if step % stride == 0:
-            views.append({'step': step, 'w2c': frame_to_w2c(frame), 'rgb': frame['rgb'], 'depth': frame['depth']})
+            views.append(make_view(step, frame['c2w'], frame['rgb'], frame['depth']))
     return views
-
-def collect_novel_views(dataset, trajectory_positions:np.ndarray, count:int, radius:float, seed:int) -> List[dict]:
-    '''Teleport the agent to random navigable points within radius of the trajectory, facing a random direction.'''
-    rng = np.random.RandomState(seed)
-    sim = dataset._sim
-    views = []
-    attempts = 0
-    while len(views) < count and attempts < count * 50:
-        attempts += 1
-        centre = trajectory_positions[rng.randint(len(trajectory_positions))]
-        position = sim.pathfinder.get_random_navigable_point_near(centre, radius)
-        if not np.all(np.isfinite(position)):
-            continue
-        yaw = rng.uniform(0, 2 * np.pi)
-        rotation = quaternion.from_rotation_vector(np.array([0, yaw, 0]))
-        sim.set_agent_state(position.tolist(), quaternion.as_float_array(rotation)[[1, 2, 3, 0]].tolist())
-        frame = dataset.get_frame()
-        views.append({'step': len(views), 'w2c': frame_to_w2c(frame), 'rgb': frame['rgb'], 'depth': frame['depth']})
-    if len(views) < count:
-        Log(f'Only found {len(views)} of {count} novel views', tag=PROJECT_NAME)
-    return views
-
-def psnr(prediction:torch.Tensor, target:torch.Tensor) -> float:
-    mse = torch.mean((prediction - target) ** 2)
-    return float(-10 * torch.log10(mse.clamp_min(1e-10)))
-
-@torch.no_grad()
-def evaluate_view(params:dict, intrinsics:np.ndarray, render_config:dict, lpips_model, view:dict, device:torch.device) -> Tuple[dict, np.ndarray]:
-    scene_data, scene_depth_data = get_rendervars(params, view['w2c'])
-    image, depth, opacity, _ = render(view['w2c'], intrinsics, scene_data, scene_depth_data, render_config)
-    image = image.clamp(0, 1)
-    target = torch.tensor(view['rgb'], device=device).float().permute(2, 0, 1)
-    target_depth = torch.tensor(view['depth'], device=device).float()
-    covered = opacity[0] > COVERED_OPACITY
-    valid_depth = target_depth > 0
-    metrics = {
-        'psnr': psnr(image, target),
-        'ssim': float(calc_ssim(image, target)),
-        'lpips': float(lpips_model(image.unsqueeze(0), target.unsqueeze(0), normalize=True)),
-        'psnr_mapped': psnr(image[:, covered], target[:, covered]) if covered.any() else float('nan'),
-        'coverage': float(covered.float().mean()),
-        'depth_l1_m': float((depth[0] - target_depth).abs()[covered & valid_depth].mean()) if (covered & valid_depth).any() else float('nan'),
-    }
-    error = (image - target).abs().mean(dim=0)
-    panel = np.concatenate([
-        target.permute(1, 2, 0).cpu().numpy(),
-        image.permute(1, 2, 0).cpu().numpy(),
-        np.repeat(np.clip(error.cpu().numpy() * 4, 0, 1)[..., None], 3, axis=2)], axis=1)
-    return metrics, np.uint8(panel * 255)
-
-def summarise(rows:List[dict]) -> dict:
-    summary = {'views': len(rows)}
-    for name in METRIC_NAMES:
-        values = np.array([row[name] for row in rows], dtype=np.float64)
-        summary[name] = float(np.nanmean(values)) if np.isfinite(values).any() else float('nan')
-    return summary
 
 def eval_images(run_dir:str, user_config:dict, device:torch.device, trajectory_stride:int, novel_count:int,
                 novel_radius:float, seed:int, example_count:int) -> Dict[str, dict]:
-    import lpips
+    '''Offline version for finished runs: replays actions.txt in a fresh simulator for the ground truth and renders from params.npz.
+    Runs started after the in-run evaluation was added already have image_metrics.json from the visualizer.'''
     with open(os.path.join(run_dir, 'config.json')) as f:
         config = json.load(f)
     with open(os.path.join(run_dir, 'actions.txt')) as f:
         actions = [int(line.strip()) for line in f if line.strip()]
     params, camera_data = load_params(os.path.join(run_dir, 'gaussians_data', 'params.npz'), device)
     intrinsics = camera_data['intrinsics']
-    lpips_model = lpips.LPIPS(net='alex', verbose=False).to(device).eval()
+    lpips_model = load_lpips(device)
 
     dataset = get_dataset(config, user_config, 'Eval')
     dataset_config = dataset.setup()
     render_config = {'viz_w': dataset_config['rgbd_width'], 'viz_h': dataset_config['rgbd_height'], 'viz_near': 0.01, 'viz_far': 100.0}
 
-    agent_state = dataset._sim.get_agent_state()
-    sensor_height = float(agent_state.sensor_states['rgb'].position[1] - agent_state.position[1])
     trajectory_views = collect_trajectory_views(dataset, actions, trajectory_stride)
     # NOTE: the replay must reproduce the mapped trajectory, otherwise the "ground truth" would not correspond to the mapped frames
     first_w2c = np.eye(4)
@@ -155,37 +81,11 @@ def eval_images(run_dir:str, user_config:dict, device:torch.device, trajectory_s
     if replay_offset > 1e-2:
         Log(f'WARNING: replayed pose at step {last_step} is {replay_offset:.3f} m from the mapped pose', tag=PROJECT_NAME)
 
-    trajectory_positions = np.stack([np.linalg.inv(view['w2c'])[:3, 3] for view in trajectory_views])
-    # NOTE: habitat's y axis is up; navigable points are sampled around the point on the floor below the sensor
-    agent_foot = trajectory_positions - np.array([0.0, sensor_height, 0.0])
-    novel_views = collect_novel_views(dataset, agent_foot, novel_count, novel_radius, seed)
+    novel_views = collect_novel_views(dataset, trajectory_views, novel_count, novel_radius, seed)
     dataset.close()
-
-    view_sets = {'trajectory': trajectory_views, 'novel': novel_views}
-    examples_dir = os.path.join(run_dir, 'image_eval')
-    os.makedirs(examples_dir, exist_ok=True)
-    for name in os.listdir(examples_dir):
-        os.remove(os.path.join(examples_dir, name))
-    all_rows, summaries = [], {}
-    for set_name, views in view_sets.items():
-        rows = []
-        example_indices = set(np.linspace(0, len(views) - 1, min(example_count, len(views))).astype(int).tolist())
-        for index, view in enumerate(views):
-            metrics, panel = evaluate_view(params, intrinsics, render_config, lpips_model, view, device)
-            rows.append({'set': set_name, 'step': view['step'], **metrics})
-            if index in example_indices:
-                Image.fromarray(panel).save(os.path.join(examples_dir, f"{set_name}_{view['step']:04d}.png"))
-        summaries[set_name] = summarise(rows)
-        all_rows += rows
-    with open(os.path.join(run_dir, 'image_metrics.csv'), 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=['set', 'step', *METRIC_NAMES])
-        writer.writeheader()
-        writer.writerows(all_rows)
-    with open(os.path.join(run_dir, 'image_metrics.json'), 'w') as f:
-        json.dump({'scene_id': config['dataset']['scene_id'], 'settings': {
-            'trajectory_stride': trajectory_stride, 'novel_views': len(novel_views), 'novel_radius_m': novel_radius, 'seed': seed,
-            'covered_opacity': COVERED_OPACITY}, **summaries}, f, indent=4)
-    return summaries
+    settings = {'source': 'offline replay', 'trajectory_stride': trajectory_stride, 'novel_radius_m': novel_radius, 'seed': seed}
+    return evaluate_view_sets(run_dir, config['dataset']['scene_id'], params, intrinsics, render_config, lpips_model,
+                              {'trajectory': trajectory_views, 'novel': novel_views}, device, settings, example_count)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=f'{PROJECT_NAME} image-quality evaluator (final map vs simulator ground truth).')
@@ -211,8 +111,5 @@ if __name__ == '__main__':
     start = time.time()
     summaries = eval_images(args.run_dir, user_config, device, args.trajectory_stride, args.novel_views,
                             args.novel_radius, args.seed, args.examples)
-    for set_name, summary in summaries.items():
-        Log(f"{set_name} ({summary['views']} views): PSNR {summary['psnr']:.2f} dB, SSIM {summary['ssim']:.3f}, LPIPS {summary['lpips']:.3f}, "
-            f"PSNR mapped {summary['psnr_mapped']:.2f} dB, coverage {summary['coverage'] * 100:.1f} %, depth L1 {summary['depth_l1_m'] * 100:.1f} cm",
-            tag=PROJECT_NAME)
+    log_summaries(summaries)
     Log(f'Image evaluation took {time.time() - start:.0f} s', tag=PROJECT_NAME)

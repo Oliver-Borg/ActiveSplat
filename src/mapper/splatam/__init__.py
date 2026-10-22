@@ -29,7 +29,7 @@ from utils.logging_utils import Log
 from utils.gui_utils import GaussianPacket
 from utils.camera_utils import Camera
 from utils.pose_utils import mat_to_q_pos, rot_axis
-from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder, tracer
+from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder, tracer, imwrite_jpeg
 
 @dataclass
 class sample():
@@ -339,8 +339,8 @@ class SplaTAM:
             self.sample.transform_matrix = batch['c2w']
         # RGB
         image = np.asarray(rgb_np, dtype=np.uint8).reshape((self.sample.height, self.sample.width, 3))
-        image_save_path = str(self.images_dir.joinpath(f"{str(cur_frame_id).zfill(4)}.png"))
-        cv2.imwrite(image_save_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        image_save_path = str(self.images_dir.joinpath(f"{str(cur_frame_id).zfill(4)}.jpg"))
+        imwrite_jpeg(image_save_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         
         # Depth
         save_depth = None
@@ -360,7 +360,7 @@ class SplaTAM:
                             dtype=np.float32).reshape((4, 4)).T
         frame = {
             "transform_matrix": X_WV.tolist(),
-            "file_path": f"rgb/{str(cur_frame_id).zfill(4)}.png",
+            "file_path": f"rgb/{str(cur_frame_id).zfill(4)}.jpg",
             "fl_x": self.sample.fl_x,
             "fl_y": self.sample.fl_y,
             "cx": self.sample.cx,

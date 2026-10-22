@@ -30,7 +30,7 @@ import rospy
 from std_msgs.msg import Int32, Bool
 from geometry_msgs.msg import PoseStamped, Twist, Pose, Point
 
-from utils import PROJECT_NAME, GlobalState, planner_timing_recorder, tracer
+from utils import PROJECT_NAME, GlobalState, planner_timing_recorder, tracer, imwrite_jpeg
 from utils.logging_utils import Log
 from utils.gui_utils import PoseChangeType, c2w_world_to_topdown, c2w_topdown_to_world, is_pose_changed, get_horizon_bound_topdown
 from dataloader import PoseDataType, convert_to_c2w_opencv
@@ -1499,7 +1499,7 @@ class PlannerNode:
                     self.__visited_map = visited_map.copy()
                     if self.__save_runtime_data and not self.__rotation_arrived_flag:
                         topdown_map = np.hstack([self.__topdown_free_map_imshow, self.__visited_map])
-                        cv2.imwrite(os.path.join(self.__topdown_map_dir, f'{self.__save_topdown_map_count}.png'), topdown_map)
+                        imwrite_jpeg(os.path.join(self.__topdown_map_dir, f'{self.__save_topdown_map_count}.jpg'), topdown_map)
                         self.__save_topdown_map_count += 1
                     if not self.__hide_windows:
                         cv2.imshow('Topdown Free Map Visited', self.__visited_map)
@@ -1526,7 +1526,7 @@ class PlannerNode:
                 self.__update_cluster_nodes_map_flag = False
                 self.__cluster_nodes_map = self.__voronoi_graph['clusters_cv2'].copy()
                 if self.__save_topdown_map_count > 1:
-                    cv2.imwrite(os.path.join(self.__subregion_map_dir, f'{self.__save_topdown_map_count - 1}.png'), self.__cluster_nodes_map)
+                    imwrite_jpeg(os.path.join(self.__subregion_map_dir, f'{self.__save_topdown_map_count - 1}.jpg'), self.__cluster_nodes_map)
             if cv2_imshow_flag:
                 key = cv2.waitKey(1)
                 if wait_for_manual_planning_flag:
@@ -1692,9 +1692,9 @@ class PlannerNode:
     
     def __save_results(self) -> None:
         if self.__visited_map is not None:
-            cv2.imwrite(os.path.join(self.__results_dir, 'visited_map.png'), self.__visited_map)
+            imwrite_jpeg(os.path.join(self.__results_dir, 'visited_map.jpg'), self.__visited_map)
         if self.__topdown_free_map_imshow is not None:
-            cv2.imwrite(os.path.join(self.__results_dir, 'topdown_free_map.png'), self.__topdown_free_map_imshow)
+            imwrite_jpeg(os.path.join(self.__results_dir, 'topdown_free_map.jpg'), self.__topdown_free_map_imshow)
             
     def __interpolate_path(self) -> None:
         self.__controller_destination_flag = False

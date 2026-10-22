@@ -6,6 +6,8 @@ import torch
 import cv2
 from imgviz import depth2rgb
 
+from utils import imwrite_jpeg
+
 
 def seed_everything(seed=42):
     """
@@ -56,7 +58,7 @@ def save_keyframes(keyframe_list, keyframe_dir, rgbd_sensor):
         cur_frame_id = keyframe['id']
         
         rgbd = np.hstack((color_vis, depth_vis)) # (H, W*2, 3)
-        cv2.imwrite(os.path.join(keyframe_dir, f"{str(cur_frame_id).zfill(4)}.png"), cv2.cvtColor(rgbd, cv2.COLOR_RGB2BGR))
+        imwrite_jpeg(os.path.join(keyframe_dir, f"{str(cur_frame_id).zfill(4)}.jpg"), cv2.cvtColor(rgbd, cv2.COLOR_RGB2BGR))
         
 def save_params_ckpt(output_params, output_dir, time_idx):
     # Convert to CPU Numpy Arrays
