@@ -75,6 +75,7 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 - [x] Random-walk baseline (`scripts/oracle/random_walk.py`, replayed through ActiveSplat)
 - [x] Native planner repeated with several seeds (noise level): `ACTIVESPLAT_SEED`; 3 runs per scene, 2 on pLe4wQe7qrG (the third hung at launch and still has to be rerun)
 - [x] Comparison script/table (`scripts/oracle/compare.py`, output in `docs/oracle_results.md` and `docs/oracle_plots/`): coverage curves, AUC, steps-to-X %, path length, two-direction coverage, image metrics
+  - The runs behind these tables were moved to `results/archive/` (they predate the span tracer); regenerate with `python scripts/oracle/compare.py --results_dir results/archive --steps 1000 ...`. `results/archive/MANIFEST.txt` lists them.
 - [x] Dashboard tab with the coverage curves (Coverage tab; a run's method name is read from `<run>/label.txt`)
 
 ### Later (not started)
