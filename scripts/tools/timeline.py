@@ -11,6 +11,15 @@ matplotlib.use('Agg')
 import pandas as pd
 from matplotlib.figure import Figure
 
+def run_title(run_dir:str) -> str:
+    '''Run folder name and, when recorded, its optimisation label (optimisations.json).'''
+    name = os.path.basename(os.path.normpath(run_dir))
+    path = os.path.join(run_dir, 'optimisations.json')
+    if os.path.isfile(path):
+        with open(path) as f:
+            name += f" [{json.load(f)['label']}]"
+    return name
+
 # (stage, process, file, kind): 'production' stages are needed by the mapper or planner to run; 'debug' stages only produce visualisations or
 # evaluation data (saved images, GUI renders, oracle scoring) and disappear when those options are off.
 # NOTE: visibility_* also includes the opacity images, which are rendered only when windows are shown or runtime data is saved
@@ -63,7 +72,7 @@ def build_figure(run_dir:str, t0:float=None, t1:float=None) -> Figure:
     ax.invert_yaxis()
     ax.set_xlim(t0 or 0, t1 if t1 is not None else events['end'].max())
     ax.set_xlabel('wall-clock time since the first event (s)')
-    ax.set_title(os.path.basename(os.path.normpath(run_dir)) + '   (blue = mapper process, orange = planner process, faded = waiting, grey hatched = visualisation/debug)', fontsize=10)
+    ax.set_title(run_title(run_dir) + '   (blue = mapper process, orange = planner process, faded = waiting, grey hatched = visualisation/debug)', fontsize=10)
     ax.grid(axis='x', alpha=0.3)
     fig.tight_layout()
     return fig
@@ -102,7 +111,7 @@ def build_interactive_figure(run_dir:str, t0:float=None, t1:float=None):
               for g in [[position for (_, _, _, k), position in zip(rows, positions) if k == 'debug']] if g]
     figure.update_layout(
         barmode='overlay', bargap=0, shapes=shapes, height=max(420, 34 * len(rows) + 160), margin=dict(l=10, r=10, t=40, b=40),
-        title=dict(text=os.path.basename(os.path.normpath(run_dir)) + ' — blue: mapper process, orange: planner process, faded: waiting, grey hatched: visualisation/debug', font_size=13),
+        title=dict(text=run_title(run_dir) + ' — blue: mapper process, orange: planner process, faded: waiting, grey hatched: visualisation/debug', font_size=13),
         xaxis=dict(title='wall-clock time since the first event (s)', rangeslider=dict(visible=True, thickness=0.06), range=[t0 or 0, t1] if t1 is not None else None),
         yaxis=dict(tickvals=positions, ticktext=[stage for stage, _, _, _ in rows], autorange='reversed', fixedrange=True, showgrid=False),
         legend=dict(groupclick='togglegroup'), hovermode='closest')
@@ -203,7 +212,7 @@ def build_trace_figure(run_dir:str, t0:float=None, t1:float=None):
     ticks, labels = lane_labels(lanes)
     figure.update_layout(
         barmode='overlay', bargap=0, shapes=shapes, height=max(420, 26 * (lanes[-1][2] + lanes[-1][3]) + 160), margin=dict(l=10, r=10, t=40, b=40),
-        title=dict(text=os.path.basename(os.path.normpath(run_dir)) + ' — rows are threads grouped by process; a span nested in another sits on the lane below it; faded: waiting; grey hatched: visualisation/debug', font_size=13),
+        title=dict(text=run_title(run_dir) + ' — rows are threads grouped by process; a span nested in another sits on the lane below it; faded: waiting; grey hatched: visualisation/debug', font_size=13),
         xaxis=dict(title='wall-clock time since the first span (s)', rangeslider=dict(visible=True, thickness=0.06), range=[t0 or 0, t1] if t1 is not None else None),
         yaxis=dict(tickvals=ticks, ticktext=labels, autorange='reversed', fixedrange=True, showgrid=False),
         legend=dict(groupclick='togglegroup'), hovermode='closest')
@@ -230,7 +239,7 @@ def build_trace_png(run_dir:str, t0:float=None, t1:float=None) -> Figure:
     ax.invert_yaxis()
     ax.set_xlim(t0 or 0, t1 if t1 is not None else events['end'].max())
     ax.set_xlabel('wall-clock time since the first span (s)')
-    ax.set_title(os.path.basename(os.path.normpath(run_dir)) + '  (a nested span is on the lane below its parent; faded = waiting; grey hatched = visualisation/debug)', fontsize=10)
+    ax.set_title(run_title(run_dir) + '  (a nested span is on the lane below its parent; faded = waiting; grey hatched = visualisation/debug)', fontsize=10)
     from matplotlib.patches import Patch
     ax.legend(handles=[Patch(color=span_color(name, names), alpha=0.45 if name in WAITING_SPANS else 1.0, label=name) for name in names], ncol=6, fontsize=7, loc='upper center', bbox_to_anchor=(0.5, -0.16))
     ax.grid(axis='x', alpha=0.3)

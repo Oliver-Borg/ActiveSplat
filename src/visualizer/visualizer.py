@@ -30,7 +30,8 @@ from utils.gui_utils import OPENCV_TO_OPENGL, GaussianPacket, PoseChangeType, vf
 from mapper.splatam.splatam import prepare_render_params
 from evaluation.image_eval import collect_novel_views, evaluate_view_sets, load_lpips, log_summaries, make_view
 from utils.logging_utils import Log
-from utils import PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder, tracer, imwrite_jpeg
+from utils.pose_noise import PoseNoise, resolve_settings as pose_noise_settings
+from utils import optimisations, PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM, CURRENT_AGENT, CURRENT_HORIZON, start_timing, end_timing, GlobalState, timing_recorder, pose_error_recorder, oracle_coverage_recorder, tracer, imwrite_jpeg
 from utils.camera_utils import Camera
 from dataloader.dataloader import HabitatDataset
 from oracle import OracleScene, observable_cache_path, load_observable
@@ -128,6 +129,8 @@ class Visualizer:
         self.__image_eval_settings = {'enabled': True, 'trajectory_stride': 5, 'novel_views': 100, 'novel_radius': 1.5, 'examples': 6, 'seed': 0,
                                       **config.get('image_eval', {})}
         self.__eval_trajectory_views = []
+        # NOTE: optional simulated odometry error (src/utils/pose_noise.py): the mapper and planner get drifting poses, evaluation uses the true ones
+        self.__pose_noise = PoseNoise(pose_noise_settings(config))
         # NOTE: top-down map cache. The free map is rendered from the live map, which the mapper updates in place, so it is keyed by a counter of mapper
         # steps; the visible map is rendered from a snapshot taken in receive_data (so it lags the free map by one mapper step), keyed by that snapshot.
         # A render with unchanged inputs gives the identical image, so it is reused. ACTIVESPLAT_VERIFY_TOPDOWN=1 re-renders every map the original way and compares.
@@ -382,6 +385,10 @@ class Visualizer:
         os.makedirs(self.__results_dir, exist_ok=True)
         timing_recorder.open(self.__results_dir)
         tracer.open(self.__results_dir, 'mapper node')
+        if self.__pose_noise.enabled:
+            Log(f'Pose noise: {self.__pose_noise.settings}', tag='ActiveSplat')
+        optimisations.save(self.__results_dir)
+        Log(f'Optimisations: {optimisations.label}', tag='ActiveSplat')
         pose_error_recorder.open(self.__results_dir)
         oracle_coverage_recorder.open(self.__results_dir)
         self.__oracle = None
@@ -947,14 +954,14 @@ class Visualizer:
                     # the mapper moves the tensors to the GPU
                     if self.__image_eval_settings['enabled'] and frame_id % self.__image_eval_settings['trajectory_stride'] == 0:
                         self.__eval_trajectory_views.append(make_view(
-                            frame_id, frame_current['c2w'].numpy(), np.uint8(np.round(frame_current['rgb'].numpy() * 255)), frame_current['depth'].numpy()))
+                            frame_id, frame_current.get('c2w_true', frame_current['c2w'].numpy()), np.uint8(np.round(frame_current['rgb'].numpy() * 255)), frame_current['depth'].numpy()))
                     frame_last_received = frame_current.copy()
                     self.__traj_info["step_times"] = frame_id
                     if self.__oracle is not None:
                         timing_oracle = start_timing(use_cuda=False)
                         trace_oracle = tracer.begin()
                         new_samples = self.__oracle.observe(
-                            frame_current['c2w'].detach().cpu().numpy().astype(np.float64) @ OPENCV_TO_OPENGL, self.__rgbd_sensor.intrinsics,
+                            np.asarray(frame_current.get('c2w_true', frame_current['c2w'].detach().cpu().numpy()), dtype=np.float64) @ OPENCV_TO_OPENGL, self.__rgbd_sensor.intrinsics,
                             self.__rgbd_sensor.width, self.__rgbd_sensor.height, self.__depth_limit[0], self.__depth_limit[1])
                         oracle_coverage_recorder.write_row([frame_id, new_samples, self.__oracle.seen_count, f'{self.__oracle.coverage():.5f}'])
                         timing_recorder.record('oracle_observe', frame_id, end_timing(*timing_oracle, use_cuda=False), trace=False)
@@ -1007,15 +1014,18 @@ class Visualizer:
                 height_cut = (self.__agent_head, self.__agent_foot - self.__agent_foot_adjust)
                 free_key = (self.__params_version, height_cut, camera_key)
                 visible_key = (self.__gaussian_for_render_key, camera_key)
+                render_cache = optimisations.enabled('render_cache')
                 with self.__use_gaussian_condition:
                     with tracer.span('topdown: wait for gaussian lock'):
                         self.__use_gaussian_condition.acquire()
-                    if free_key != self.__topdown_free_key:
+                    if not render_cache or free_key != self.__topdown_free_key:
                         with tracer.span('topdown: cut gaussians by height', sync=True, gaussians=int(self.__gaussian_packet.params['means3D'].shape[0])):
                             # NOTE: the boolean-mask cut copies, so the live map needs no clone first
-                            gaussian_free_map = self.__cut_gaussian_by_height(dict(self.__gaussian_packet.params), *height_cut)
-                        with tracer.span('topdown: prepare render params', sync=True):
-                            prepared_free_map = prepare_render_params(gaussian_free_map)
+                            gaussian_free_map = self.__cut_gaussian_by_height(self.__params_to_cut(), *height_cut)
+                        prepared_free_map = None
+                        if optimisations.enabled('prepared_params'):
+                            with tracer.span('topdown: prepare render params', sync=True):
+                                prepared_free_map = prepare_render_params(gaussian_free_map)
                         with tracer.span('topdown: render free map'):
                             self.__render_topdown_free_map = self.__mapper.render_o3d_image(
                                 gaussian_free_map, topdown_cam, scale_modifier=0.01, gaussian_color_type=GaussianColorType.Opacity, is_original=True, prepared=prepared_free_map)
@@ -1023,11 +1033,11 @@ class Visualizer:
                         self.__verify_stats['renders_done'] += 1
                     else:
                         self.__verify_stats['renders_reused'] += 1
-                    if visible_key != self.__topdown_visible_key or (self.__save_runtime_data and (self.__gaussian_for_render_key, 'saved', camera_key) != self.__topdown_saved_key):
+                    if optimisations.enabled('prepared_params') and (visible_key != self.__topdown_visible_key or (self.__save_runtime_data and (self.__gaussian_for_render_key, 'saved', camera_key) != self.__topdown_saved_key)):
                         if self.__gaussian_for_render_prepared is None:
                             with tracer.span('topdown: prepare render params (visible)', sync=True):
                                 self.__gaussian_for_render_prepared = prepare_render_params(self.__gaussian_for_render)
-                    if visible_key != self.__topdown_visible_key:
+                    if not render_cache or visible_key != self.__topdown_visible_key:
                         with tracer.span('topdown: render visible map'):
                             self.__render_topdown_visible_map = self.__mapper.render_o3d_image(
                                 self.__gaussian_for_render, topdown_cam, scale_modifier=0.01, prepared=self.__gaussian_for_render_prepared)
@@ -1035,7 +1045,7 @@ class Visualizer:
                         self.__verify_stats['renders_done'] += 1
                     else:
                         self.__verify_stats['renders_reused'] += 1
-                    if self.__save_runtime_data and (self.__gaussian_for_render_key, 'saved', camera_key) != self.__topdown_saved_key:
+                    if self.__save_runtime_data and (not render_cache or (self.__gaussian_for_render_key, 'saved', camera_key) != self.__topdown_saved_key):
                         # NOTE: planning keeps using the grid-resolution map, the saved image is rendered at a higher resolution (visualisation only)
                         timing_topdown_saved = start_timing()
                         trace_topdown_saved = tracer.begin()
@@ -1321,6 +1331,11 @@ class Visualizer:
             f.write(manifest_json)
         self.traing_finished = True
         self.__mapper.post_processing()
+        if self.__pose_noise.enabled:
+            errors = self.__pose_noise.errors()
+            with open(os.path.join(self.__results_dir, 'pose_noise.json'), 'w') as f:
+                json.dump({'settings': self.__pose_noise.settings, 'errors': errors}, f, indent=2)
+            Log(f'Pose noise errors: {errors}', tag='ActiveSplat')
         if self.__verify_topdown:
             Log(f'Top-down verify: {self.__verify_stats}', tag='ActiveSplat')
         else:
@@ -1364,9 +1379,15 @@ class Visualizer:
                 device = self.__device
                 render_config = {'viz_w': self.__rgbd_sensor.width, 'viz_h': self.__rgbd_sensor.height, 'viz_near': 0.01, 'viz_far': 100.0}
                 novel_views = self.__eval_novel_views
+                trajectory_views = self.__eval_trajectory_views
+                if self.__pose_noise.enabled:
+                    # NOTE: the map is in the drifting frame; a view at true pose T is rendered from it at inv(A) @ T (A: the ATE alignment)
+                    alignment = self.__pose_noise.alignment()
+                    trajectory_views = [{**view, 'w2c': view['w2c'] @ alignment} for view in trajectory_views]
+                    novel_views = [{**view, 'w2c': view['w2c'] @ alignment} for view in novel_views]
                 summaries = evaluate_view_sets(
                     self.__results_dir, self.scene_id, self.__mapper.params, self.__mapper.intrinsics.detach().cpu().numpy(), render_config, load_lpips(device),
-                    {'trajectory': self.__eval_trajectory_views, 'novel': novel_views}, device,
+                    {'trajectory': trajectory_views, 'novel': novel_views}, device,
                     {'source': 'in-run', 'trajectory_stride': settings['trajectory_stride'], 'novel_radius_m': settings['novel_radius'], 'seed': settings['seed']},
                     settings['examples'])
             log_summaries(summaries)
@@ -1830,8 +1851,8 @@ class Visualizer:
                           self.__height_direction_upper_bound_slider.double_value if not self.__hide_windows else self.__open3d_gui_widget_last_state['height_direction_bound_slider'][1])
                 snapshot_key = (self.__params_version, bounds)
                 # NOTE: the snapshot only changes when the mapper has updated the map (or the height sliders moved), so it is not re-copied on every pass of the loop
-                if snapshot_key != self.__gaussian_for_render_key:
-                    self.__gaussian_for_render = self.__cut_gaussian_by_height(dict(self.__gaussian_packet.params), bounds[0], bounds[1])
+                if not optimisations.enabled('snapshot_cache') or snapshot_key != self.__gaussian_for_render_key:
+                    self.__gaussian_for_render = self.__cut_gaussian_by_height(self.__params_to_cut(), bounds[0], bounds[1])
                     self.__gaussian_for_render_key = snapshot_key
                     self.__gaussian_for_render_prepared = None
                 if self.__verify_topdown:
@@ -1955,6 +1976,9 @@ class Visualizer:
                 if pose_change_type != PoseChangeType.NONE:
                     if pose_change_type in [PoseChangeType.TRANSLATION, PoseChangeType.BOTH]:
                         movement_fail_times = 0
+                    # NOTE: the pose-change check above and __frame_c2w_last use the true pose; from here on everything gets the estimated one
+                    true_c2w = frame_c2w
+                    frame_c2w = self.__pose_noise.apply(true_c2w).astype(true_c2w.dtype)
                     frame_quaternion = quaternion.from_rotation_matrix(frame_c2w[:3, :3])
                     frame_quaternion = quaternion.as_float_array(frame_quaternion)
                     pose_ros = PoseStamped()
@@ -1967,11 +1991,12 @@ class Visualizer:
                     pose_ros.pose.orientation.x = frame_quaternion[1]
                     pose_ros.pose.orientation.y = frame_quaternion[2]
                     pose_ros.pose.orientation.z = frame_quaternion[3]
-                    self.__frame_c2w_last = frame_c2w
+                    self.__frame_c2w_last = true_c2w
                     frame_torch = {
                         'rgb': torch.from_numpy(frame_numpy['rgb']),
                         'depth': torch.from_numpy(frame_numpy['depth']),
-                        'c2w': torch.from_numpy(frame_c2w)}
+                        'c2w': torch.from_numpy(frame_c2w),
+                        'c2w_true': true_c2w}
                     self.__valid_depth_flag = True
                     self.__update_ui_frame(frame_torch)
                     if self.__frames_cache.empty() and self.__valid_depth_flag:
@@ -2534,6 +2559,12 @@ class Visualizer:
             if not np.array_equal(used, reference):
                 stats[f'{name}_mismatch'] += 1
                 Log(f'Top-down verify: the {name} map differs (max abs diff {np.abs(used.astype(np.float64) - reference.astype(np.float64)).max():.3g})', tag='ActiveSplat')
+
+    def __params_to_cut(self) -> Dict[str, torch.Tensor]:
+        '''The live map's parameters for __cut_gaussian_by_height: the boolean-mask cut copies, so a clone first (the original behaviour) is only extra work.'''
+        if optimisations.enabled('no_clone_cut'):
+            return dict(self.__gaussian_packet.params)
+        return {k: v.clone() for k, v in self.__gaussian_packet.params.items()}
 
     def __cut_gaussian_by_height(self, gaussian_params:Dict[str, torch.Tensor], upper_limit, lower_limit) -> Dict[str, torch.Tensor]:
         gauss_condition = torch.logical_or(

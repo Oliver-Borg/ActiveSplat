@@ -29,7 +29,7 @@ from utils.logging_utils import Log
 from utils.gui_utils import GaussianPacket
 from utils.camera_utils import Camera
 from utils.pose_utils import mat_to_q_pos, rot_axis
-from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder, tracer, imwrite_jpeg
+from utils import start_timing, end_timing, OPENCV_TO_OPENGL, timing_recorder, pose_error_recorder, tracer, imwrite_jpeg, optimisations
 
 @dataclass
 class sample():
@@ -199,7 +199,7 @@ class SplaTAM:
         _, _, view_c2w = self.__get_np_data(batch)
         view_w2c =  np.linalg.inv(view_c2w)
         
-        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=False)
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=not optimisations.enabled('single_pass_render'))
         
         k = copy.deepcopy(self.__rgbd_sensor.intrinsics)
         viz_cfg = copy.deepcopy(self.config['viz'])
@@ -689,7 +689,7 @@ class SplaTAM:
         _, _, view_c2w = self.__get_np_data(batch)
         view_w2c =  np.linalg.inv(view_c2w)
         
-        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=False)
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=not optimisations.enabled('single_pass_render'))
         
         k = copy.deepcopy(self.__rgbd_sensor.intrinsics)
         viz_cfg = copy.deepcopy(self.config['viz'])
@@ -715,9 +715,11 @@ class SplaTAM:
     
     @torch.no_grad()
     def render_o3d_image(self, params:dict, current_cam:Camera, scale_modifier=1.0, gaussian_color_type:GaussianColorType=GaussianColorType.Color, is_original=False,
-                         prepared:dict=None, fast=True):
+                         prepared:dict=None, fast=None):
         '''fast: only the image pass of the rasterizer (this function never uses the silhouette); fast=False is the original two-pass render, kept as the
         reference for ACTIVESPLAT_VERIFY_TOPDOWN. prepared: prepare_render_params(params), to share the camera-independent work between renders of one map.'''
+        if fast is None:
+            fast = optimisations.enabled('single_pass_render')
         view_w2c_gl = torch.eye(4).cuda().float()
         view_w2c_gl[:3, :3] = current_cam.R
         view_w2c_gl[:3, 3] = current_cam.T
@@ -790,7 +792,7 @@ class SplaTAM:
             seen, depth = self.__oracle.look_around_view(view_c2w, intrinsics, cfg['viz_w'], cfg['viz_h'])
             rgb = np.repeat((seen[..., None] * 255).astype(np.uint8), 3, axis=2)
             return rgb, seen, depth
-        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=False)
+        scene_data, scene_depth_data = get_rendervars(self.params, view_w2c, with_depth_sil=not optimisations.enabled('single_pass_render'))
         im, depth, opacity, _, = render(view_w2c, intrinsics, scene_data, scene_depth_data, cfg, scale_modifier)
         im_np = (
             (torch.clamp(im, min=0, max=1.0) * 255)

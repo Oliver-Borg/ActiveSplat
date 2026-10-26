@@ -3,6 +3,7 @@
 # Runs in its own env (see scripts/tools/dashboard.sh); it only reads files, it never needs ROS or habitat.
 import argparse
 import datetime
+import importlib.util
 import json
 import os
 import sys
@@ -52,6 +53,27 @@ def list_runs(results_dir:str) -> list:
             if os.path.isfile(os.path.join(results_dir, name, 'gaussians_data', 'params.npz'))]
     return sorted(runs, reverse=True)
 
+def read_optimisations(run_dir:str) -> str:
+    '''Which performance optimisations the run had (optimisations.json, written by the mapper); older runs did not record it.'''
+    path = os.path.join(run_dir, 'optimisations.json')
+    if not os.path.isfile(path):
+        return 'optimisations not recorded'
+    with open(path) as f:
+        return json.load(f)['label']
+
+def optimisations_table(run_dir:str) -> str:
+    '''Markdown table of every switchable optimisation with ✅/❌ for this run (names and descriptions from src/utils/optimisations.py, which is standard library only).'''
+    path = os.path.join(run_dir, 'optimisations.json')
+    if not os.path.isfile(path):
+        return 'Optimisations: not recorded (the run predates the switches)'
+    spec = importlib.util.spec_from_file_location('activesplat_optimisations', os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src', 'utils', 'optimisations.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with open(path) as f:
+        enabled = set(json.load(f)['enabled'])
+    rows = [f"| `{name}` | {'✅' if name in enabled else '❌'} | {description} |" for name, description in module.OPTIMISATIONS.items()]
+    return '| Optimisation | On | What it does |\n|---|:-:|---|\n' + '\n'.join(rows)
+
 def read_run_metadata(run_dir:str) -> dict:
     '''Cheap per-run facts for labels and tables: only small files and the first frame's image header are read.'''
     with open(os.path.join(run_dir, 'config.json')) as f:
@@ -97,6 +119,7 @@ def read_run_metadata(run_dir:str) -> dict:
             rot_err = pose_errors['rot_err_deg'].median()
             trans_err = pose_errors['trans_err_m'].median() * 100
     return {
+        'optimisations': read_optimisations(run_dir),
         'name': name,
         'started': started,
         'scene': config['dataset']['scene_id'],
@@ -133,6 +156,7 @@ def run_label(metadata:dict) -> str:
     ]
     if metadata['started'] is not None:
         parts.append(metadata['started'].strftime('%b %d %H:%M'))
+    parts.append(metadata['optimisations'])
     return ' · '.join(parts)
 
 def run_choices(results_dir:str) -> list:
@@ -510,6 +534,17 @@ class RunData:
         pose_errors_path = os.path.join(run_dir, 'pose_errors.csv')
         self.pose_errors = pd.read_csv(pose_errors_path) if os.path.isfile(pose_errors_path) else None
 
+    def pose_noise_text(self) -> str:
+        '''Simulator poses, or the settings and trajectory error of the simulated odometry drift (pose_noise.json).'''
+        path = os.path.join(self.run_dir, 'pose_noise.json')
+        if not os.path.isfile(path):
+            return 'simulator (true) poses'
+        with open(path) as f:
+            data = json.load(f)
+        settings, errors = data['settings'], data['errors']
+        return (f"simulated drift: {settings['translation_drift'] * 100:g} % translation, {settings['rotation_drift'] * 100:g} % rotation, jitter {settings['jitter_m'] * 100:g} cm / {settings['jitter_deg']:g}° "
+                f"(ATE RMSE {errors['ate_rmse_m'] * 100:.1f} cm, mean rotation error {errors['rot_err_mean_deg']:.1f}°)")
+
     def summary_markdown(self) -> str:
         dataset = self.config['dataset']
         params = np.load(os.path.join(self.gaussians_dir, 'params.npz'))
@@ -526,6 +561,7 @@ class RunData:
             f"| Wall time | {wall_time} |",
             f"| Steps (actions taken / budget) | {len(self.actions)} / {dataset['step_num']} |",
             f"| Frames saved | {len(self.rgb_paths)} |",
+            f"| Pose source | {self.pose_noise_text()} |",
             f"| Keyframes saved | {len(self.keyframe_paths)} |",
             f"| Gaussians | {params['means3D'].shape[0]:,} |",
             f"| Depth range | {dataset['near']} – {dataset['far']} m |",
@@ -534,7 +570,7 @@ class RunData:
             final = self.eval.iloc[-1]
             lines.append(f"| Completion ratio (<5 cm) | {final['comp_ratio'] * 100:.2f} % |")
             lines.append(f"| Path length | {final['path_length_m']:.2f} m |")
-        return '\n'.join(lines)
+        return '\n'.join(lines) + '\n\n' + optimisations_table(self.run_dir)
 
     def actions_frame(self) -> pd.DataFrame:
         names, counts = np.unique(self.actions, return_counts=True)

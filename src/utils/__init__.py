@@ -9,6 +9,7 @@ import torch
 import numpy as np
 
 from .trace import tracer
+from .optimisations import optimisations
 
 PROJECT_NAME = 'ActiveSplat'
 
