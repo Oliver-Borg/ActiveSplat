@@ -1,0 +1,15 @@
+label,phase,mean_ms,median_ms,steps
+baseline,capture,10.0,9.9,284
+baseline,map: other,58.8,45.3,284
+baseline,map: optimise,106.8,114.0,284
+baseline,render,227.3,232.2,284
+baseline,display,10.8,10.7,284
+baseline,rest,154.2,121.8,284
+baseline,interval,567.8,536.9,284
+all optimisations,capture,10.0,10.1,284
+all optimisations,map: other,50.6,38.3,284
+all optimisations,map: optimise,103.9,115.0,284
+all optimisations,render,61.8,61.7,284
+all optimisations,display,11.2,11.1,284
+all optimisations,rest,140.1,119.5,284
+all optimisations,interval,377.6,360.5,284
