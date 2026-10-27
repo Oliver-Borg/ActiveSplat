@@ -1,0 +1,198 @@
+{
+  "meta": {
+    "git_commit": "118d3f35c8898e426d293288cb8ad29831b966e6",
+    "git_branch": "main",
+    "git_dirty_files": [
+      "CLAUDE.md",
+      "scripts/nodes/planner_node.py"
+    ],
+    "git_untracked": [
+      "config/datasets/gibson_1024.json",
+      "config/env/activesplat_1024_pointnav.yaml",
+      "experiments/",
+      "scripts/tools/experiment_log.py",
+      "scripts/tools/panel_sheet.py"
+    ],
+    "gpu": [
+      "NVIDIA L40S"
+    ]
+  },
+  "runs": [
+    {
+      "label": "512 px, 0 %",
+      "run": "results/2026-10-27_09-08-51_gibson_skokloster-castle",
+      "scene": "skokloster-castle",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "all optimisations",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 200,
+        "psnr": 23.39381284713745,
+        "ssim": 0.7392113135755062,
+        "lpips": 0.2588998941332102,
+        "psnr_mapped": 23.661659679412843,
+        "coverage": 0.9953151893615723,
+        "depth_l1_m": 0.3407155908702407
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 21.09815174102783,
+        "ssim": 0.6680632829666138,
+        "lpips": 0.31426472775638103,
+        "psnr_mapped": 22.06754810333252,
+        "coverage": 0.9857668304443359,
+        "depth_l1_m": 0.3263322151452303
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "1024 px, 0 %",
+      "run": "results/2026-10-26_14-59-08_gibson_skokloster-castle",
+      "scene": "skokloster-castle",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_1024_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "all optimisations",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 198,
+        "psnr": 23.393695850564978,
+        "ssim": 0.8049542994210215,
+        "lpips": 0.24539946975431057,
+        "psnr_mapped": 23.58162819737136,
+        "coverage": 0.9996284667891685,
+        "depth_l1_m": 0.43017769775898995
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.04299681663513,
+        "ssim": 0.7522012662887573,
+        "lpips": 0.2931680354475975,
+        "psnr_mapped": 22.736716556549073,
+        "coverage": 0.996149206161499,
+        "depth_l1_m": 0.4172618806944229
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "1024 px, 0.5 %",
+      "run": "results/2026-10-26_15-24-04_gibson_skokloster-castle",
+      "scene": "skokloster-castle",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_1024_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "all optimisations",
+      "pose_noise": {
+        "enabled": true,
+        "translation_drift": 0.005,
+        "rotation_drift": 0.005,
+        "jitter_m": 0.0,
+        "jitter_deg": 0.0,
+        "seed": 0
+      },
+      "pose_errors": {
+        "frames": 1001,
+        "ate_rmse_m": 0.04253376218560072,
+        "ate_max_m": 0.07951567928756272,
+        "rot_err_mean_deg": 0.7426139244858656,
+        "rot_err_max_deg": 1.2711804694251698,
+        "final_translation_error_m": 0.1449197379211575
+      },
+      "trajectory": {
+        "views": 201,
+        "psnr": 20.338960903794018,
+        "ssim": 0.5582664632678624,
+        "lpips": 0.37087073773887025,
+        "psnr_mapped": 20.35401556385097,
+        "coverage": 0.9998562039427497,
+        "depth_l1_m": 0.3523715971853232
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 19.908770904541015,
+        "ssim": 0.5492480093240738,
+        "lpips": 0.39866355538368226,
+        "psnr_mapped": 20.116950540542604,
+        "coverage": 0.996818151473999,
+        "depth_l1_m": 0.2973641024157405
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "512 px, 0.5 %",
+      "run": "results/2026-10-26_16-29-33_gibson_skokloster-castle",
+      "scene": "skokloster-castle",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "all optimisations",
+      "pose_noise": {
+        "enabled": true,
+        "translation_drift": 0.005,
+        "rotation_drift": 0.005,
+        "jitter_m": 0.0,
+        "jitter_deg": 0.0,
+        "seed": 0
+      },
+      "pose_errors": {
+        "frames": 1001,
+        "ate_rmse_m": 0.05245079501861109,
+        "ate_max_m": 0.12635405893617016,
+        "rot_err_mean_deg": 1.0948327330081686,
+        "rot_err_max_deg": 1.838185368444456,
+        "final_translation_error_m": 0.2410972081975576
+      },
+      "trajectory": {
+        "views": 201,
+        "psnr": 19.28826195920878,
+        "ssim": 0.48783179732104437,
+        "lpips": 0.39513236810615404,
+        "psnr_mapped": 19.305740318488127,
+        "coverage": 0.9994189893428366,
+        "depth_l1_m": 0.5316963434052556
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.585809841156006,
+        "ssim": 0.46399224489927293,
+        "lpips": 0.42733362793922425,
+        "psnr_mapped": 18.854443969726564,
+        "coverage": 0.9914448165893555,
+        "depth_l1_m": 0.4871206774935126
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    }
+  ]
+}

@@ -780,7 +780,10 @@ class PlannerNode:
                         elif diff_translation > self.__agent_step_size_pixel:
                             cmd_vel_msg.linear.x = SPEED
                         else:
-                            raise ValueError('Unknown condition.')
+                            # NOTE: the waypoint is within one step and needs no turn. The path was pruned against an older pose, so the pose moved on between pruning and here: plan again from the current pose
+                            rospy.logwarn('Next waypoint already within one step, re-planning from the current pose.')
+                            rospy.sleep(0.01)
+                            continue
                         self.__publish_cmd_vel(cmd_vel_msg)
                         with self.__update_map_cv2_condition:
                             self.__update_map_cv2_condition.notify_all()
