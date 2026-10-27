@@ -1,8 +1,0 @@
-stage,baseline,"all except render_cache,
-snapshot_cache",all optimisations
-capture,14.7,7.9,7.9
-mapper,461.6,176.4,136.3
-optimise,237.1,120.1,94.0
-topdown_render,219.0,72.3,33.1
-visibility_global,3543.5,1510.9,1395.7
-visibility_local,185.6,68.3,55.4
