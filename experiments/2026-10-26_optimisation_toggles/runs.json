@@ -1,0 +1,126 @@
+{
+  "meta": {
+    "git_commit": "c7c39545020b11822c44987a117dc84eb5c73bc9",
+    "git_branch": "main",
+    "git_dirty_files": [],
+    "git_untracked": [
+      "experiments/2026-10-26_optimisation_toggles/"
+    ],
+    "gpu": [
+      "NVIDIA L40S"
+    ]
+  },
+  "runs": [
+    {
+      "label": "baseline",
+      "run": "results/2026-10-26_12-04-49_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 150,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "baseline",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 31,
+        "psnr": 25.04046424742668,
+        "ssim": 0.8625125058235661,
+        "lpips": 0.16000186219330756,
+        "psnr_mapped": 27.722464223061838,
+        "coverage": 0.9906518997684601,
+        "depth_l1_m": 0.00948140552387603
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 13.968278608322144,
+        "ssim": 0.6229974642395973,
+        "lpips": 0.3938591482490301,
+        "psnr_mapped": 21.318025722503663,
+        "coverage": 0.8287542343139649,
+        "depth_l1_m": 0.029098018031800166
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "all except render_cache, snapshot_cache",
+      "run": "results/2026-10-26_12-04-44_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 150,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "all except render_cache, snapshot_cache",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 31,
+        "psnr": 25.037021821545018,
+        "ssim": 0.8625469419264025,
+        "lpips": 0.159967988008453,
+        "psnr_mapped": 27.721063736946352,
+        "coverage": 0.9906388559649068,
+        "depth_l1_m": 0.009476611060240576
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 13.96811909198761,
+        "ssim": 0.6229966887831688,
+        "lpips": 0.393841707855463,
+        "psnr_mapped": 21.314104890823366,
+        "coverage": 0.8288238906860351,
+        "depth_l1_m": 0.02910294256056659
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "all optimisations",
+      "run": "results/2026-10-26_13-49-39_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 150,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "all optimisations",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 31,
+        "psnr": 25.03075953452818,
+        "ssim": 0.862494820548642,
+        "lpips": 0.15997677849185082,
+        "psnr_mapped": 27.714135323801347,
+        "coverage": 0.9906478389616935,
+        "depth_l1_m": 0.009479058891414635
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 13.967738089561463,
+        "ssim": 0.622995739877224,
+        "lpips": 0.39398397974669935,
+        "psnr_mapped": 21.31542078971863,
+        "coverage": 0.8287996673583984,
+        "depth_l1_m": 0.029076286738272755
+      },
+      "image_eval_settings": {
+        "source": "in-run",
+        "trajectory_stride": 5,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "novel_views": 100,
+        "covered_opacity": 0.5
+      }
+    }
+  ]
+}
