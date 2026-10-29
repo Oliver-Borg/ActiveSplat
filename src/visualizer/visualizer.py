@@ -1095,11 +1095,11 @@ class Visualizer:
                     self.__topdown_info['free_map_binary'] = (self.__render_topdown_free_map <= 0.4).astype(np.uint8)
                     self.__topdown_info['visible_map_binary'] = (topdown_gray_visible_map == 255).astype(np.uint8)
                     if self.__gt_navigation == 'gt_free_map':
-                        # NOTE: the planner's free and "unseen" maps both mark what is not free space (see update_topdown_free_map), so the ground truth sets both
+                        # NOTE: free_map_binary is 1 where free and visible_map_binary is 1 where nothing was rendered (unseen), see update_topdown_free_map; the ground truth is all "seen"
                         if self.__gt_free_map is None:
                             self.__gt_free_map = self.__build_gt_free_map()
-                        self.__topdown_info['free_map_binary'] = (~self.__gt_free_map).astype(np.uint8)
-                        self.__topdown_info['visible_map_binary'] = (~self.__gt_free_map).astype(np.uint8)
+                        self.__topdown_info['free_map_binary'] = self.__gt_free_map.astype(np.uint8)
+                        self.__topdown_info['visible_map_binary'] = np.zeros_like(self.__topdown_info['free_map_binary'])
                 
                 trace_display = tracer.begin()
                 self.__topdown_info['free_map_cv2'] = self.__render_topdown_free_map_cv2
