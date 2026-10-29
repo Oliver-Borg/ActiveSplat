@@ -33,7 +33,11 @@ Only the *viewpoint selection* is changed; the SplaTAM mapper stays online and n
 | NBV w=1 | 43.4 | 66.5 | 82.0 | 94.2 | 73.3 | 469 ± 187 | 24.3 | 79.0 | 20.6 | 19.9 | 0.692 | 0.331 |
 | NBV w=3 | 40.1 | 61.3 | 69.6 | 91.7 | 65.5 | 678 ± 279 | 26.2 | 76.7 | 21.2 | 20.7 | 0.699 | 0.334 |
 
-![coverage, mean over scenes](coverage_all_scenes.jpg)
+![coverage, mean over scenes, core methods](coverage_all_scenes_core.jpg)
+
+Shading is ±1 s.d. **between the four scenes**, so it is mostly scene difficulty (pLe4wQe7qrG and YmJkqBEsHnH are hard for every method), not noise of a method; the bands of different methods overlap for that reason even where the ranking is the same on every scene (it is for NBV vs the rest at AUC). The per-scene plots (`coverage_<scene>.jpg`) shade min to max over repeated runs, which exists only for native (2 to 3 seeds): that band is the run-to-run noise to compare the other single-run lines against. All eight methods: `coverage_all_scenes.jpg`.
+
+![coverage, mean over scenes, all methods](coverage_all_scenes.jpg)
 
 Per scene (coverage at 1000 steps / AUC; native = mean of 2 to 3 seeds ± s.d., the others single runs):
 
@@ -51,6 +55,30 @@ Per scene (coverage at 1000 steps / AUC; native = mean of 2 to 3 seeds ± s.d., 
 Per-scene curves: `coverage_<scene>.jpg`. Full per-scene tables (all columns incl. SSIM/LPIPS, steps to 80/90 %): `docs/oracle_results.md`.
 
 Trajectory image quality per scene (PSNR, native = seed mean): gZ6f7yhEvPG 17.6 native / 17.8 oracle-info / 17.7 tour / 17.1 NBV; GdvgFV5R1Z5 24.5 / 24.2 / 24.7 / 23.6; pLe4wQe7qrG 26.1 / 25.6 / 25.1 / 24.9; YmJkqBEsHnH 15.7 / 19.7 / 20.7 / 14.1.
+
+## How oracle-info, the tour and NBV differ
+
+All three get the same GT mesh and are scored the same way; they differ in **what they use the GT for**, **where they may go**, and **whether they react while driving**.
+
+| | oracle-info (Tier 2) | tour | NBV (Tier 3) |
+|---|---|---|---|
+| What is replaced by GT | Only the answer to "what is still unseen from this node?": the mapper's rendered look-around opacity/depth is swapped for GT-mesh raycasts against the observed-voxel set | Everything: surface to cover, navigable space, and the order of visits | Surface still unseen, navigable space; the choice of the next view |
+| Candidate places | The native planner's own: Voronoi-graph nodes of the top-down free map **built online from the Gaussians**, so only places the mapper already knows to be free | Precomputed grid of positions x yaws x pitches (-30/0/30°) on the GT navmesh, including places not yet mapped | The same kind of free candidate poses on the GT navmesh, re-scored from the current pose |
+| How a target is chosen | Native machinery: invisibility score per node, hierarchical subregion planner, rotation selection by largest unmapped cluster | Once, offline: greedy set cover (fewest views that see the surface), insertion by new surface per added action under the 1000-step budget, 2-opt on the route; the order is fixed in advance | Every time: the view with the highest (new surface, capped at what the remaining budget can reach) / (walking + turns + tilts); myopic greedy |
+| Feedback | Closed loop on the **mapper's** state: re-plans each step from the growing map | **None** (open loop): writes `actions.txt`, replayed blindly; it never reacts to what the sensor or mapper actually got | Closed loop on the **oracle's** observed set while planning (replans from where it is), then the finished actions are replayed; it does not use the mapper either |
+| Travel | Native: can only go where the map is known | Geodesic nearest-neighbour + 2-opt (distance order) or heading-aware (fewer turns) | Greedy geodesic follower to each chosen view |
+| Cost to run | A 360° look-around raycast per node (10 to 40 ms), inside the run | About 15 s offline per scene | About 15 s offline per scene for 1000 steps |
+
+In one sentence each:
+- **oracle-info** is the native planner with perfect eyes: it knows exactly which surface is unseen, but it still has to discover the free space itself and picks among the nodes the mapper has built, so frontier-limited behaviour remains.
+- **tour** is a global plan with perfect knowledge but no replanning: efficient in path length (14.8 m) and good at the end of the budget, but it visits places in route order, so early coverage is not prioritised (curves cross native's), and it cannot recover if execution drifts from the plan.
+- **NBV** is a local, greedy plan with perfect knowledge and perfect replanning: it always takes the best next gain per action, which front-loads coverage (80 % in about 400 steps), at the price of more walking (29.4 m) and no global route optimality.
+
+What the results say about the contrast (single runs apart from native, so indicative):
+- oracle-info → NBV isolates the value of **knowing the free space and choosing free poses** (not just knowing what is unseen): AUC 62 to 77, 89 % to 95 % final coverage. oracle-info is within native noise on two scenes, so the unseen-geometry knowledge alone is a small part of the gain.
+- tour → NBV isolates **replanning against greedy gain per action versus a fixed global route**: the tour matches NBV only at the end (92.6 % vs 95.3 % at 1000 steps) while AUC is 64.5 vs 77.2.
+- oracle-info vs tour: the tour has a shorter path and better final coverage, oracle-info has the better early-mid curve on some scenes and uses the real mapper in the loop. Not separated by this data: the two differ in several ways at once (candidates, route optimisation, feedback), and there is one run per scene.
+- Caveat: these are three bundles of differences, not single-factor ablations. A cleaner test (e.g. oracle-info with GT navigation, or NBV restricted to mapper-known free space) was not run (`planner.oracle.navigation: gt_navmesh` is still open in `docs/oracle_baselines.md`).
 
 ## Reading
 - **Knowing the scene helps exploration, and how it is used matters more than whether it is used.** Tier 3 (NBV: free poses, GT navmesh, myopic closed loop) is best on every scene: AUC 77 against 59 for native, 80 % coverage in about 400 steps against about 625, 95 % at 1000 steps against 83 %. It also walks more (29 m against 22 m).

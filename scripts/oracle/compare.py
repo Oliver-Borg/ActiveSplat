@@ -85,18 +85,23 @@ def table(rows:dict, steps:int, order:list) -> str:
             lines.append(f'| {label} | {len(rows[label])} | ' + ' | '.join(summarise(rows[label], steps)) + ' |')
     return '\n'.join(lines)
 
-def plot(curves:dict, title:str, path:str, steps:int, order:list) -> None:
+def plot(curves:dict, title:str, path:str, steps:int, order:list, band:str) -> None:
+    # band: 'range' shades min to max over repeated runs (nothing for a single run), 'std' shades +-1 standard deviation (here: between scenes)
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     figure, axis = plt.subplots(figsize=(7, 4.2))
     for label in order:
         if label in curves:
-            mean = np.mean([run['curve'][:steps + 1] for run in curves[label]], axis=0)
-            axis.plot(np.arange(len(mean)), mean, label=f'{label} ({len(curves[label])})')
+            stack = np.array([run['curve'][:steps + 1] for run in curves[label]])
+            mean = stack.mean(axis=0)
+            line, = axis.plot(np.arange(len(mean)), mean, label=f'{label} ({len(stack)})')
+            if len(stack) > 1:
+                low, high = (stack.min(axis=0), stack.max(axis=0)) if band == 'range' else (mean - stack.std(axis=0), mean + stack.std(axis=0))
+                axis.fill_between(np.arange(len(mean)), low, high, color=line.get_color(), alpha=0.12, linewidth=0)
     axis.set_xlabel('step')
     axis.set_ylabel('observable surface seen (%)')
-    axis.set_title(title)
+    axis.set_title(title + (' (shading: min to max over repeated runs)' if band == 'range' else ' (shading: ±1 s.d. between scenes)'), fontsize=9)
     axis.grid(alpha=0.3)
     axis.legend(fontsize=8)
     figure.tight_layout()
@@ -123,7 +128,7 @@ if __name__ == '__main__':
         sections.append(f'### {scene}\n\n' + table(groups[scene], args.steps, all_labels))
         if args.plots_dir:
             os.makedirs(args.plots_dir, exist_ok=True)
-            plot(groups[scene], scene, os.path.join(args.plots_dir, f'coverage_{scene}.png'), args.steps, all_labels)
+            plot(groups[scene], scene, os.path.join(args.plots_dir, f'coverage_{scene}.png'), args.steps, all_labels, 'range')
         for label, runs in groups[scene].items():
             # NOTE: a scene counts once per method (mean over its repeats), so scenes with more repeats do not dominate the average
             merged = {key: float(np.nanmean([run.get(key, np.nan) for run in runs])) for key in runs[0] if key not in ('curve', 'run', 'steps')}
@@ -131,7 +136,9 @@ if __name__ == '__main__':
             per_label[label].append(merged)
     sections.append('### Mean over scenes\n\n' + table(per_label, args.steps, all_labels))
     if args.plots_dir:
-        plot(per_label, 'mean over scenes', os.path.join(args.plots_dir, 'coverage_all_scenes.png'), args.steps, all_labels)
+        plot(per_label, 'mean over scenes', os.path.join(args.plots_dir, 'coverage_all_scenes.png'), args.steps, all_labels, 'std')
+        core = [label for label in ('random walk', 'native', 'oracle-info', 'tour (heading order)', 'NBV') if label in per_label]
+        plot(per_label, 'mean over scenes', os.path.join(args.plots_dir, 'coverage_all_scenes_core.png'), args.steps, core, 'std')
     text = '\n\n'.join(sections) + '\n'
     if args.out:
         with open(args.out, 'w') as f:
