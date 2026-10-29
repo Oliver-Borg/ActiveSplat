@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import Dataset
 import cv2
 import quaternion
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 import habitat
 from habitat import sims
 from habitat import Simulator as HabSimulator
@@ -35,6 +35,8 @@ class HabitatDataset(Dataset):
         depth_scale = config['dataset']['depth_scale']
         self._env_config_url = config['env']['config']
         self._sc_factor = config['dataset']['sc_factor']
+        # NOTE: optional panoramic rig: extra pinhole views at the same position, rotated about the vertical axis (degrees); the first view is the normal sensor
+        self._rig_yaws = [float(yaw) for yaw in config.get('rig', {}).get('yaws', [])]
         self._step_num = config['dataset']['step_num']
         self._remark = remark
         
@@ -125,6 +127,14 @@ class HabitatDataset(Dataset):
         OmegaConf.set_readonly(config, False)
         config.habitat.simulator.scene = self.__habitat_mesh_url
         config.habitat.simulator.agents.main_agent.sim_sensors.depth_sensor.normalize_depth = False
+        sim_sensors = config.habitat.simulator.agents.main_agent.sim_sensors
+        with open_dict(sim_sensors):
+            for view_index, yaw in enumerate(self._rig_yaws, start=1):
+                for kind in ['rgb', 'depth']:
+                    view_config = OmegaConf.create(OmegaConf.to_container(sim_sensors[f'{kind}_sensor']))
+                    view_config.uuid = f'{kind}_r{view_index}'
+                    view_config.orientation = [0.0, float(np.deg2rad(yaw)), 0.0]
+                    sim_sensors[f'{kind}_sensor_r{view_index}'] = view_config
         OmegaConf.set_readonly(config, True)
         assert config.habitat.simulator.agents.main_agent.sim_sensors.rgb_sensor.position[1] == config.habitat.simulator.agents.main_agent.sim_sensors.depth_sensor.position[1]
 
@@ -164,16 +174,7 @@ class HabitatDataset(Dataset):
         
         return dataset_config
         
-    # NOTE: we find that in habitat, the y-axis is the height axis, but the rotation matrix with identity point to negative z-axis
-    def get_frame(self) -> Dict[str, Union[int, np.ndarray]]:
-        '''
-        depth image: unit in meters
-        '''
-        rgbd_data = self._get_frame()
-        
-        color_data_torch:torch.Tensor = rgbd_data['rgb']
-        depth_data_torch:torch.Tensor = rgbd_data['depth']
-        
+    def __process_view(self, color_data_torch:torch.Tensor, depth_data_torch:torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
         color_data_numpy:np.ndarray = color_data_torch.detach().cpu().numpy()
         depth_data_numpy:np.ndarray = depth_data_torch.detach().cpu().numpy()
         
@@ -198,6 +199,17 @@ class HabitatDataset(Dataset):
             raise NotImplementedError('Downsample factor < 1.0 not implemented')
         elif image_height / self._rgbd_sensor.height != image_width / self._rgbd_sensor.width:
             raise ValueError(f'Invalid image shape: {depth_data_numpy.shape}, rgbd sensor shape: {self._rgbd_sensor.height}x{self._rgbd_sensor.width}')
+        
+        return color_data_numpy, depth_data_numpy
+    
+    # NOTE: we find that in habitat, the y-axis is the height axis, but the rotation matrix with identity point to negative z-axis
+    def get_frame(self) -> Dict[str, Union[int, np.ndarray]]:
+        '''
+        depth image: unit in meters
+        '''
+        rgbd_data = self._get_frame()
+        
+        color_data_numpy, depth_data_numpy = self.__process_view(rgbd_data['rgb'], rgbd_data['depth'])
         
         agent_data:AgentState = self._sim.get_agent_state()
         
@@ -229,6 +241,16 @@ class HabitatDataset(Dataset):
             'rgb': color_data_numpy,
             'depth': depth_data_numpy
         }
+        
+        if self._rig_yaws:
+            ret['rig'] = []
+            for view_index in range(1, len(self._rig_yaws) + 1):
+                view_color, view_depth = self.__process_view(rgbd_data[f'rgb_r{view_index}'], rgbd_data[f'depth_r{view_index}'])
+                view_state = agent_data.sensor_states[f'rgb_r{view_index}']
+                view_c2w = np.eye(4)
+                view_c2w[:3, :3] = quaternion.as_rotation_matrix(view_state.rotation)
+                view_c2w[:3, 3] = view_state.position
+                ret['rig'].append({'c2w': view_c2w.astype(np.float32), 'rgb': view_color, 'depth': view_depth})
         
         self._frame_id += 1
         

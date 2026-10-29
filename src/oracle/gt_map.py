@@ -9,11 +9,12 @@ import numpy as np
 from utils.gui_utils import translations_world_to_topdown
 
 def gt_free_map(surface_points:np.ndarray, island_positions:np.ndarray, start:np.ndarray, topdown_info:Dict, height_cut:tuple,
-                island_radius:float=0.6) -> np.ndarray:
+                island_radius:float=0.6, agent_radius:float=0.0) -> np.ndarray:
     '''
     Boolean image (rows = topdown y, columns = topdown x), True where the agent can be: no ground-truth surface inside the agent's height band
     (the same cut as the Gaussian free map: keep -y between upper_limit and lower_limit), within island_radius of a navigable position of the start floor, and connected to the start.
-    surface_points, island_positions and start are in the simulator's world frame; height_cut = (upper_limit, lower_limit) as in the visualizer.
+    With agent_radius > 0 only space where a disc of that radius fits is kept (the planner's safe-path test needs the agent's width inside free space, and
+    unreachable nodes make its global plan stall). surface_points, island_positions and start are in the simulator's world frame; height_cut = (upper_limit, lower_limit) as in the visualizer.
     '''
     columns, rows = topdown_info['grid_map_shape']
     meter_per_pixel = topdown_info['meter_per_pixel']
@@ -38,4 +39,13 @@ def gt_free_map(surface_points:np.ndarray, island_positions:np.ndarray, start:np
     # NOTE: the start pixel can sit on a thickened surface sample; take the nearest candidate pixel
     ys, xs = np.nonzero(candidate)
     nearest = np.argmin((xs - x) ** 2 + (ys - y) ** 2)
-    return labels == labels[ys[nearest], xs[nearest]]
+    free = labels == labels[ys[nearest], xs[nearest]]
+    if agent_radius > 0:
+        radius = int(np.ceil(agent_radius / meter_per_pixel))
+        disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
+        opened = cv2.morphologyEx(free.astype(np.uint8), cv2.MORPH_OPEN, disc)
+        count, labels = cv2.connectedComponents(opened, connectivity=4)
+        ys, xs = np.nonzero(opened)
+        nearest = np.argmin((xs - x) ** 2 + (ys - y) ** 2)
+        free = labels == labels[ys[nearest], xs[nearest]]
+    return free

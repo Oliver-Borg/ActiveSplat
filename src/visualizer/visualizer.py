@@ -2,6 +2,7 @@ import os
 PACKAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 import json
 import threading
+from collections import deque
 import traceback
 import time
 from enum import Enum
@@ -156,6 +157,9 @@ class Visualizer:
             self.__actions = np.loadtxt(actions_url, dtype=np.int32)
             self.__global_state = GlobalState.REPLAY
             self.__global_states_selectable.append(GlobalState.REPLAY)
+        # NOTE: panoramic rig: number of extra views per step, and those of the first frame, which wait until the mapper has initialised from the primary view
+        self.__rig_views = len(config.get('rig', {}).get('yaws', []))
+        self.__rig_deferred = deque()
         if self.__local_dataset is not None:
             self.__local_dataset_state = self.LocalDatasetState.INITIALIZING
             self.__local_dataset_condition = threading.Condition()
@@ -170,6 +174,8 @@ class Visualizer:
             self.__local_dataset_label.font_id = font_id
             _, step_num = self.__local_dataset.get_step_info()
             self.scene_id = self.__local_dataset.get_scene_id()
+            # NOTE: a panoramic rig delivers one frame per view and step to the mapper (the primary view first), so the mapper's frame budget is larger
+            step_num *= 1 + self.__rig_views
             
         self.__bbox_padding = config['mapper']['bbox_padding_ratio']
         self.__depth_limit = [config['dataset']['near'], config['dataset']['far']]
@@ -1973,6 +1979,14 @@ class Visualizer:
                 apply_movement_flag = self.__local_dataset_twist is not None
                 apply_movement_result = False
                 # NOTE: Capture = simulator step + RGBD sensor render
+                if self.__rig_views:
+                    # NOTE: the rig's views of the previous step go to the mapper one by one; none is dropped
+                    while self.__rig_deferred and self.__global_state != GlobalState.QUIT:
+                        while not self.__frames_cache.empty() and self.__global_state != GlobalState.QUIT:
+                            self.__local_dataset_condition.wait(0.005)
+                        self.__frames_cache.put(self.__rig_deferred.popleft())
+                    while not self.__frames_cache.empty() and self.__global_state != GlobalState.QUIT:
+                        self.__local_dataset_condition.wait(0.005)
                 timing_capture = start_timing(use_cuda=False)
                 if self.__actions is not None:
                     # NOTE: the first pass only captures the initial frame
@@ -2017,6 +2031,21 @@ class Visualizer:
                     self.__update_ui_frame(frame_torch)
                     if self.__frames_cache.empty() and self.__valid_depth_flag:
                         self.__frames_cache.put(frame_torch)
+                        # NOTE: the other views of the rig, at the same position; their estimated pose keeps the relative rotation to the primary view
+                        for rig_view in frame_numpy.get('rig', []):
+                            rig_c2w_true = rig_view['c2w']
+                            rig_c2w = (frame_c2w @ np.linalg.inv(true_c2w) @ rig_c2w_true).astype(true_c2w.dtype)
+                            rig_frame = {
+                                'rgb': torch.from_numpy(rig_view['rgb']),
+                                'depth': torch.from_numpy(rig_view['depth']),
+                                'c2w': torch.from_numpy(rig_c2w),
+                                'c2w_true': rig_c2w_true}
+                            if frame_numpy['frame_id'] == 0:
+                                self.__rig_deferred.append(rig_frame)
+                                continue
+                            while not self.__frames_cache.empty() and self.__global_state != GlobalState.QUIT:
+                                self.__local_dataset_condition.wait(0.005)
+                            self.__frames_cache.put(rig_frame)
                     self.__local_dataset_pose_ros = pose_ros
                     self.__local_dataset_pose_pub.publish(self.__local_dataset_pose_ros)
                     movement_fail_times_pub.publish(Int32(movement_fail_times))
@@ -2427,7 +2456,8 @@ class Visualizer:
                                                 self.__config_dataset['format'], self.scene_id if self.scene_id != 'None' else self.__config_dataset['scene_id'])
         island_positions = np.load(observable_path)['camera_positions']
         start = self.__start_position_world
-        free = gt_free_map(self.__oracle.points, island_positions, start, self.__topdown_info, (self.__agent_head, self.__agent_foot - self.__agent_foot_adjust))
+        free = gt_free_map(self.__oracle.points, island_positions, start, self.__topdown_info, (self.__agent_head, self.__agent_foot - self.__agent_foot_adjust),
+                           agent_radius=float(self.__dataset_config.agent_radius))
         Log(f'GT free map: {int(free.sum())} free pixels', tag=PROJECT_NAME)
         imwrite_jpeg(os.path.join(self.__results_dir, 'gt_free_map.jpg'), (free * 255).astype(np.uint8))
         return free
