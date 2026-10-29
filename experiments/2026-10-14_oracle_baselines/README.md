@@ -166,6 +166,17 @@ write actions; replay them through ActiveSplat      # the mapper is not consulte
 
 Differences that matter, in one place: native and oracle-info decide **during** the run from the mapper's map (only places it already knows to be free, one node at a time, with a fixed scoring recipe); the tour decides **everything before** the run and never revisits the decision; NBV decides **one view at a time before** the run, always from where it currently stands, using its own record of what it has seen.
 
+## Trajectories on one scene (gZ6f7yhEvPG)
+
+![trajectories](trajectories_gZ6f7yhEvPG.jpg)
+
+One run per method, top-down camera positions coloured by step, over the final Gaussian map cut to the agent's height band (`scripts/oracle/trajectory_figure.py`; poses from `gaussians_data/params.npz`). Runs: random walk `2026-10-13_16-42-04`, native (the first seed) `2026-10-12_17-47-47`, oracle-info `2026-10-13_13-45-43`, tour (heading order) `2026-10-13_16-15-28`, NBV `2026-10-13_13-36-02`, NBV w=1 `2026-10-13_16-24-50` (all `results/archive/<time>_mp3d_gZ6f7yhEvPG`). The coverage in the titles is that single run (native 94.3 %, not the 92.4 % seed mean of the tables). What it shows:
+- **random walk** stays in the neighbourhood of the start; after a long early leg it wanders and revisits (42 m of path for 65 % coverage).
+- **native** and **oracle-info** are smooth: they leave the start region towards one side and then go round the hall along the walls, a few long legs between graph nodes; neither goes through the small spaces at the bottom early. They look alike, as the numbers suggest.
+- **tour**: purposeful legs to places with sweeps (the tight zig-zags are turn-in-place sweeps and short repositionings at one position), and it starts at the right and bottom first, then crosses to the left; route order, not nearest-gain.
+- **NBV** takes long straight crossings straight to far unseen surface (the lines through the middle) and ends at the far bottom left; **NBV w=1** is similar with a loop back through the start area to give second looks.
+The figure shows where each method goes, not why; it is one run each and trajectories differ between runs (native seeds diverge after about 250 steps).
+
 ## Reading
 - **Knowing the scene helps exploration, and how it is used matters more than whether it is used.** Tier 3 (NBV: free poses, GT navmesh, myopic closed loop) is best on every scene: AUC 77 against 59 for native, 80 % coverage in about 400 steps against about 625, 95 % at 1000 steps against 83 %. It also walks more (29 m against 22 m).
 - Oracle-info, which only knows what is unseen but keeps the native candidates and hierarchy, is a modest gain (AUC +3, coverage at 1000 steps +5.5), mostly on the scenes where native stalls (pLe4wQe7qrG, YmJkqBEsHnH). On gZ6f7yhEvPG and GdvgFV5R1Z5 it is within the native seed noise. The bottleneck is therefore the planner's candidate set and tour structure, not the unseen-geometry estimate.
