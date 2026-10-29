@@ -1,0 +1,1419 @@
+{
+  "meta": {
+    "git_commit": "65293ad0ca6887d23cf09b33cd821dbfd55c6858",
+    "git_branch": "main",
+    "git_dirty_files": [],
+    "git_untracked": [
+      "experiments/2026-10-14_oracle_baselines/"
+    ],
+    "gpu": [
+      "NVIDIA L40S"
+    ]
+  },
+  "runs": [
+    {
+      "label": "native_gZ6f_10-12_17-47",
+      "run": "results/archive/2026-10-12_17-47-47_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.604218438490115,
+        "ssim": 0.7180506819071462,
+        "lpips": 0.2714473121053544,
+        "psnr_mapped": 24.014269662733696,
+        "coverage": 0.929142966199277,
+        "depth_l1_m": 0.014060073341034464
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.866898636817933,
+        "ssim": 0.6968925127158582,
+        "lpips": 0.2697979399561882,
+        "psnr_mapped": 23.215305503533813,
+        "coverage": 0.9320044708251953,
+        "depth_l1_m": 0.023151032612373938
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_pLe4_10-12_19-03",
+      "run": "results/archive/2026-10-12_19-03-18_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 26.023424366813394,
+        "ssim": 0.7849297001587218,
+        "lpips": 0.25238674304526837,
+        "psnr_mapped": 27.279555638631184,
+        "coverage": 0.9973642149967934,
+        "depth_l1_m": 0.022807885234739946
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.859665327072143,
+        "ssim": 0.738628078699112,
+        "lpips": 0.3111826655268669,
+        "psnr_mapped": 25.477265796661378,
+        "coverage": 0.9880391311645508,
+        "depth_l1_m": 0.03920806524343789
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_YmJk_10-12_19-37",
+      "run": "results/archive/2026-10-12_19-37-38_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 15.266009872936788,
+        "ssim": 0.6438782657694638,
+        "lpips": 0.3261927097887542,
+        "psnr_mapped": 22.755481791496276,
+        "coverage": 0.8371166969413188,
+        "depth_l1_m": 0.04796043643262237
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 15.175007037185132,
+        "ssim": 0.6674497100105509,
+        "lpips": 0.33132404744625094,
+        "psnr_mapped": 22.264301557540893,
+        "coverage": 0.903299446105957,
+        "depth_l1_m": 0.05782527156174183
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "oracle-info_Gdvg_10-12_21-56",
+      "run": "results/archive/2026-10-12_21-56-00_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.24734386520006,
+        "ssim": 0.7799486790723469,
+        "lpips": 0.22005246690849758,
+        "psnr_mapped": 24.841983273254698,
+        "coverage": 0.9974929088383765,
+        "depth_l1_m": 0.011241591621227377
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.639501285552978,
+        "ssim": 0.740663070678711,
+        "lpips": 0.2847273165732622,
+        "psnr_mapped": 23.46762713432312,
+        "coverage": 0.9935981369018555,
+        "depth_l1_m": 0.03764611497754231
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "oracle-info_pLe4_10-12_22-35",
+      "run": "results/archive/2026-10-12_22-35-55_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 25.635382486220024,
+        "ssim": 0.7691205754802002,
+        "lpips": 0.2731187551917128,
+        "psnr_mapped": 26.576358064490172,
+        "coverage": 0.9987005736697373,
+        "depth_l1_m": 0.028321340983613066
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 24.093162841796875,
+        "ssim": 0.7289050620794296,
+        "lpips": 0.32482424095273016,
+        "psnr_mapped": 25.454850101470946,
+        "coverage": 0.9939801025390625,
+        "depth_l1_m": 0.03165772315580398
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "oracle-info_YmJk_10-12_23-05",
+      "run": "results/archive/2026-10-12_23-05-55_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 19.711354191623517,
+        "ssim": 0.7648937547977884,
+        "lpips": 0.24435427999911616,
+        "psnr_mapped": 24.607284261219537,
+        "coverage": 0.9790570273328183,
+        "depth_l1_m": 0.02550345442179053
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.53974992275238,
+        "ssim": 0.7180986613035202,
+        "lpips": 0.29004834219813347,
+        "psnr_mapped": 23.162240467071534,
+        "coverage": 0.967083740234375,
+        "depth_l1_m": 0.03660763102583587
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(distance_order)_pLe4_10-13_13-35",
+      "run": "results/archive/2026-10-13_13-35-46_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 25.076778260036487,
+        "ssim": 0.7706941309852979,
+        "lpips": 0.2988564645621314,
+        "psnr_mapped": 26.186427595603526,
+        "coverage": 0.9980917024375194,
+        "depth_l1_m": 0.02991016086107537
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 24.126481971740724,
+        "ssim": 0.7251236402988434,
+        "lpips": 0.34681462645530703,
+        "psnr_mapped": 25.16061269760132,
+        "coverage": 0.9963204193115235,
+        "depth_l1_m": 0.03474762086290866
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_gZ6f_10-13_13-36",
+      "run": "results/archive/2026-10-13_13-36-02_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.10069951963662,
+        "ssim": 0.7304637486958385,
+        "lpips": 0.277631288811342,
+        "psnr_mapped": 24.112366244567568,
+        "coverage": 0.9380370182777519,
+        "depth_l1_m": 0.01784883789829354
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.140163094997405,
+        "ssim": 0.6807400032877922,
+        "lpips": 0.30539018005132673,
+        "psnr_mapped": 23.075133266448976,
+        "coverage": 0.9401936340332031,
+        "depth_l1_m": 0.018636082101147623
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_pLe4_10-13_13-45",
+      "run": "results/archive/2026-10-13_13-45-34_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.865709750806513,
+        "ssim": 0.7566774852240263,
+        "lpips": 0.3126909224992961,
+        "psnr_mapped": 25.76289059273639,
+        "coverage": 0.9983708395886777,
+        "depth_l1_m": 0.03319503798900144
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.235391521453856,
+        "ssim": 0.7005500781536103,
+        "lpips": 0.38266336649656296,
+        "psnr_mapped": 24.428812351226806,
+        "coverage": 0.9952052688598633,
+        "depth_l1_m": 0.035177593897096814
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "oracle-info_gZ6f_10-13_13-45",
+      "run": "results/archive/2026-10-13_13-45-43_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.765030939632386,
+        "ssim": 0.7122119337792939,
+        "lpips": 0.2880538109671417,
+        "psnr_mapped": 23.687596809804734,
+        "coverage": 0.9302065645284321,
+        "depth_l1_m": 0.017571653793125752
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.933791942596436,
+        "ssim": 0.6841590359692782,
+        "lpips": 0.30954753965139387,
+        "psnr_mapped": 22.880958210338246,
+        "coverage": 0.9351289367675781,
+        "depth_l1_m": 0.021343697906669342
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(distance_order)_YmJk_10-13_13-56",
+      "run": "results/archive/2026-10-13_13-56-47_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 983,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 197,
+        "psnr": 20.730012549966727,
+        "ssim": 0.769557696611143,
+        "lpips": 0.2670496483971625,
+        "psnr_mapped": 24.667200156274784,
+        "coverage": 0.9829122669200607,
+        "depth_l1_m": 0.029727223007774292
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.268614153862,
+        "ssim": 0.7048593014478683,
+        "lpips": 0.3143354772031307,
+        "psnr_mapped": 22.89456018447876,
+        "coverage": 0.9724416732788086,
+        "depth_l1_m": 0.035113495150581
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(distance_order)_Gdvg_10-13_14-03",
+      "run": "results/archive/2026-10-13_14-03-52_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.664027958960084,
+        "ssim": 0.7910586592569873,
+        "lpips": 0.22932499977041834,
+        "psnr_mapped": 25.162427921200273,
+        "coverage": 0.9988502388569847,
+        "depth_l1_m": 0.009456474007343623
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.317499103546144,
+        "ssim": 0.7513287931680679,
+        "lpips": 0.26416385389864444,
+        "psnr_mapped": 24.017841577529907,
+        "coverage": 0.9975521469116211,
+        "depth_l1_m": 0.01577204938279465
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_YmJk_10-13_14-05",
+      "run": "results/archive/2026-10-13_14-05-03_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 14.118839132808038,
+        "ssim": 0.5992750713777779,
+        "lpips": 0.375381387510703,
+        "psnr_mapped": 21.37170573372153,
+        "coverage": 0.8261214109202523,
+        "depth_l1_m": 0.06615354457119507
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 13.389317860528827,
+        "ssim": 0.5707058010580659,
+        "lpips": 0.4071031115949154,
+        "psnr_mapped": 20.409196162710384,
+        "coverage": 0.8594407272338868,
+        "depth_l1_m": 0.10084442338164971
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_Gdvg_10-13_14-12",
+      "run": "results/archive/2026-10-13_14-12-09_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 23.578028251875693,
+        "ssim": 0.7455499175176099,
+        "lpips": 0.27071408519697426,
+        "psnr_mapped": 24.066046510762835,
+        "coverage": 0.9975059471320157,
+        "depth_l1_m": 0.014142346996999351
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.966659965515138,
+        "ssim": 0.7206678825616837,
+        "lpips": 0.28950555220246316,
+        "psnr_mapped": 23.47178398132324,
+        "coverage": 0.9981894302368164,
+        "depth_l1_m": 0.01453675569500774
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_Gdvg_10-13_14-56",
+      "run": "results/archive/2026-10-13_14-56-15_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 25.162697265397256,
+        "ssim": 0.7767143844075464,
+        "lpips": 0.21309976491947374,
+        "psnr_mapped": 25.93691987184743,
+        "coverage": 0.9975203139271902,
+        "depth_l1_m": 0.009678090654084209
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.09006839752197,
+        "ssim": 0.7219879084825516,
+        "lpips": 0.2959992431849241,
+        "psnr_mapped": 23.098959693908693,
+        "coverage": 0.9916559982299805,
+        "depth_l1_m": 0.02153623728780076
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(distance_order)_gZ6f_10-13_14-56",
+      "run": "results/archive/2026-10-13_14-56-15_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 996,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 200,
+        "psnr": 17.683746416568756,
+        "ssim": 0.7413690850138664,
+        "lpips": 0.2576395953446627,
+        "psnr_mapped": 24.15058278083801,
+        "coverage": 0.9424758529663086,
+        "depth_l1_m": 0.016644937662640587
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 19.38465921163559,
+        "ssim": 0.712788348484537,
+        "lpips": 0.2917767429351807,
+        "psnr_mapped": 23.493182095614348,
+        "coverage": 0.9538232803344726,
+        "depth_l1_m": 0.01790334807821747
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(heading_order)_gZ6f_10-13_16-15",
+      "run": "results/archive/2026-10-13_16-15-28_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.36557231257804,
+        "ssim": 0.7169037016470041,
+        "lpips": 0.2876555044852679,
+        "psnr_mapped": 23.3062426818544,
+        "coverage": 0.9491659515532688,
+        "depth_l1_m": 0.019159948455623875
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.93188027024269,
+        "ssim": 0.6621118013560772,
+        "lpips": 0.333785825073719,
+        "psnr_mapped": 22.149366874694824,
+        "coverage": 0.9372601318359375,
+        "depth_l1_m": 0.020546494456939398
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(heading_order)_pLe4_10-13_16-16",
+      "run": "results/archive/2026-10-13_16-16-51_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.696445873127647,
+        "ssim": 0.7615834934201406,
+        "lpips": 0.30690066664669646,
+        "psnr_mapped": 25.796961713193067,
+        "coverage": 0.9968402919484608,
+        "depth_l1_m": 0.03658729237944481
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.497489490509032,
+        "ssim": 0.705639761686325,
+        "lpips": 0.35478637978434563,
+        "psnr_mapped": 24.724410858154297,
+        "coverage": 0.9959371566772461,
+        "depth_l1_m": 0.03743123419582844
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w1_gZ6f_10-13_16-24",
+      "run": "results/archive/2026-10-13_16-24-50_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 16.98619305079256,
+        "ssim": 0.7261076308601532,
+        "lpips": 0.2692192670569491,
+        "psnr_mapped": 23.649745646993914,
+        "coverage": 0.9454911834564969,
+        "depth_l1_m": 0.02082518769998048
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.082086114883424,
+        "ssim": 0.6958654257655144,
+        "lpips": 0.2978853487968445,
+        "psnr_mapped": 22.845820941925048,
+        "coverage": 0.954655876159668,
+        "depth_l1_m": 0.019455220336094498
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w1_pLe4_10-13_16-27",
+      "run": "results/archive/2026-10-13_16-27-03_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.68806340801182,
+        "ssim": 0.7494797623572658,
+        "lpips": 0.3245857013250465,
+        "psnr_mapped": 25.483513912751306,
+        "coverage": 0.9981996147193719,
+        "depth_l1_m": 0.028462965854568714
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.777214269638062,
+        "ssim": 0.6883808779716492,
+        "lpips": 0.36807711005210875,
+        "psnr_mapped": 24.188732032775878,
+        "coverage": 0.9944114303588867,
+        "depth_l1_m": 0.030277138641104102
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w3_gZ6f_10-13_16-33",
+      "run": "results/archive/2026-10-13_16-33-28_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.088565675180348,
+        "ssim": 0.7072162596295722,
+        "lpips": 0.2882567563311971,
+        "psnr_mapped": 23.716531990772456,
+        "coverage": 0.9288177680020309,
+        "depth_l1_m": 0.016953454830160187
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.661285872459413,
+        "ssim": 0.7021416462212801,
+        "lpips": 0.3148013858497143,
+        "psnr_mapped": 23.17571722984314,
+        "coverage": 0.9500644683837891,
+        "depth_l1_m": 0.018504652930423617
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w3_pLe4_10-13_16-36",
+      "run": "results/archive/2026-10-13_16-36-53_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.965305034200945,
+        "ssim": 0.7553015968099756,
+        "lpips": 0.3392662385951227,
+        "psnr_mapped": 25.837997275205392,
+        "coverage": 0.9978371615433574,
+        "depth_l1_m": 0.03235541174387494
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.75503173828125,
+        "ssim": 0.7032650658488273,
+        "lpips": 0.3950706118345261,
+        "psnr_mapped": 24.93054817199707,
+        "coverage": 0.9955001449584961,
+        "depth_l1_m": 0.03550101559609175
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "random_walk_gZ6f_10-13_16-42",
+      "run": "results/archive/2026-10-13_16-42-04_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.44554393682907,
+        "ssim": 0.756310711452617,
+        "lpips": 0.29587596284216316,
+        "psnr_mapped": 23.6838400304614,
+        "coverage": 0.9331551736860133,
+        "depth_l1_m": 0.026284033854246436
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.543374338150024,
+        "ssim": 0.7134645080566406,
+        "lpips": 0.29226925209164617,
+        "psnr_mapped": 23.147459087371825,
+        "coverage": 0.943033561706543,
+        "depth_l1_m": 0.022767168087884784
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "random_walk_pLe4_10-13_16-46",
+      "run": "results/archive/2026-10-13_16-46-10_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 23.016903692217017,
+        "ssim": 0.8234545116993919,
+        "lpips": 0.3204771639102727,
+        "psnr_mapped": 26.898627834320067,
+        "coverage": 0.933755106000758,
+        "depth_l1_m": 0.07813455616589636
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 25.067020111083984,
+        "ssim": 0.7958201259374619,
+        "lpips": 0.28532604575157167,
+        "psnr_mapped": 27.34516403198242,
+        "coverage": 0.9833223724365234,
+        "depth_l1_m": 0.04739762254990637
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_gZ6f_10-13_16-49",
+      "run": "results/archive/2026-10-13_16-49-02_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 17.16466779951284,
+        "ssim": 0.687502680237339,
+        "lpips": 0.29778092121010397,
+        "psnr_mapped": 23.34337329864502,
+        "coverage": 0.9065034021785603,
+        "depth_l1_m": 0.017831306983716787
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.820555406287312,
+        "ssim": 0.686597053243313,
+        "lpips": 0.2889523373544216,
+        "psnr_mapped": 23.02076871871948,
+        "coverage": 0.9250022125244141,
+        "depth_l1_m": 0.020178799190549084
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_pLe4_10-13_16-56",
+      "run": "results/archive/2026-10-13_16-56-18_mp3d_pLe4wQe7qrG",
+      "scene": "pLe4wQe7qrG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 26.206005931493653,
+        "ssim": 0.7891534700322507,
+        "lpips": 0.24895161015922157,
+        "psnr_mapped": 27.1384820511092,
+        "coverage": 0.9986683290396163,
+        "depth_l1_m": 0.032373459047095765
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.98554045677185,
+        "ssim": 0.7477512031793594,
+        "lpips": 0.31548519775271416,
+        "psnr_mapped": 25.652712364196777,
+        "coverage": 0.9913652038574219,
+        "depth_l1_m": 0.04329036898445338
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_gZ6f_10-13_17-04",
+      "run": "results/archive/2026-10-13_17-04-18_mp3d_gZ6f7yhEvPG",
+      "scene": "gZ6f7yhEvPG",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 18.060584883784774,
+        "ssim": 0.7353273975426582,
+        "lpips": 0.2772715267405581,
+        "psnr_mapped": 24.832890790493334,
+        "coverage": 0.9110847397230157,
+        "depth_l1_m": 0.01417120121910575
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 17.421846779584886,
+        "ssim": 0.675340783149004,
+        "lpips": 0.3142854024469852,
+        "psnr_mapped": 22.841516933441163,
+        "coverage": 0.9253533935546875,
+        "depth_l1_m": 0.024637179891578855
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(heading_order)_Gdvg_10-13_17-31",
+      "run": "results/archive/2026-10-13_17-31-12_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 982,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 197,
+        "psnr": 24.647465763963417,
+        "ssim": 0.7949019204541511,
+        "lpips": 0.23170996737207858,
+        "psnr_mapped": 25.37126448190757,
+        "coverage": 0.9936090459678378,
+        "depth_l1_m": 0.009664383027844396
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.882470970153808,
+        "ssim": 0.7451716327667236,
+        "lpips": 0.2759454507380724,
+        "psnr_mapped": 23.63669200897217,
+        "coverage": 0.9928762817382812,
+        "depth_l1_m": 0.027124640357214957
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w1_Gdvg_10-13_17-39",
+      "run": "results/archive/2026-10-13_17-39-37_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.095316625946197,
+        "ssim": 0.763832472746645,
+        "lpips": 0.27164816941639675,
+        "psnr_mapped": 24.41208147646776,
+        "coverage": 0.9986118297671798,
+        "depth_l1_m": 0.014050947268266435
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.867371683120727,
+        "ssim": 0.7230011612176895,
+        "lpips": 0.3095156367123127,
+        "psnr_mapped": 23.29346263885498,
+        "coverage": 0.9979264068603516,
+        "depth_l1_m": 0.022951085076201708
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w3_Gdvg_10-13_17-49",
+      "run": "results/archive/2026-10-13_17-49-00_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 23.53483089048471,
+        "ssim": 0.7383429714992865,
+        "lpips": 0.2757813788913376,
+        "psnr_mapped": 23.764896649033275,
+        "coverage": 0.9978156777756724,
+        "depth_l1_m": 0.013482305624369365
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.04792459487915,
+        "ssim": 0.6978008264303207,
+        "lpips": 0.3093201467394829,
+        "psnr_mapped": 22.618049716949464,
+        "coverage": 0.997698974609375,
+        "depth_l1_m": 0.017125066430307926
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "random_walk_Gdvg_10-13_17-57",
+      "run": "results/archive/2026-10-13_17-57-57_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 23.75926055718417,
+        "ssim": 0.780151144782109,
+        "lpips": 0.23285699372564383,
+        "psnr_mapped": 24.70272582324583,
+        "coverage": 0.9984207722678113,
+        "depth_l1_m": 0.011562722243961706
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 23.189154434204102,
+        "ssim": 0.7685868889093399,
+        "lpips": 0.21752866327762604,
+        "psnr_mapped": 24.61581314086914,
+        "coverage": 0.9958641815185547,
+        "depth_l1_m": 0.012602265239693225
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_Gdvg_10-13_18-04",
+      "run": "results/archive/2026-10-13_18-04-08_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.134080905819413,
+        "ssim": 0.7711716795442116,
+        "lpips": 0.21054953055002204,
+        "psnr_mapped": 24.70339615665265,
+        "coverage": 0.9989883271022816,
+        "depth_l1_m": 0.00980940187380033
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.666746416091918,
+        "ssim": 0.7379262465238571,
+        "lpips": 0.2686532961577177,
+        "psnr_mapped": 23.513965396881105,
+        "coverage": 0.9953387451171875,
+        "depth_l1_m": 0.03734286661958322
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_Gdvg_10-13_18-20",
+      "run": "results/archive/2026-10-13_18-20-32_mp3d_GdvgFV5R1Z5",
+      "scene": "GdvgFV5R1Z5",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 24.17785052399137,
+        "ssim": 0.7782231726456638,
+        "lpips": 0.20322550481083382,
+        "psnr_mapped": 24.939055058493544,
+        "coverage": 0.9988395918661089,
+        "depth_l1_m": 0.008899623806129641
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 22.765410833358764,
+        "ssim": 0.7385594689846039,
+        "lpips": 0.2565538922697306,
+        "psnr_mapped": 23.679200801849365,
+        "coverage": 0.9964775466918945,
+        "depth_l1_m": 0.024791333151515573
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "tour_(heading_order)_YmJk_10-13_18-49",
+      "run": "results/archive/2026-10-13_18-49-31_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 983,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 197,
+        "psnr": 18.837391432166704,
+        "ssim": 0.7524812533165598,
+        "lpips": 0.286997439897605,
+        "psnr_mapped": 24.156876355863464,
+        "coverage": 0.9682411155119766,
+        "depth_l1_m": 0.02761677740056654
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.155887279510498,
+        "ssim": 0.7057035645842552,
+        "lpips": 0.3158316494524479,
+        "psnr_mapped": 22.896669235229492,
+        "coverage": 0.9723583984375,
+        "depth_l1_m": 0.03494990166276693
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w1_YmJk_10-13_18-57",
+      "run": "results/archive/2026-10-13_18-57-48_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 16.432656122084282,
+        "ssim": 0.703287088159305,
+        "lpips": 0.31920196590435446,
+        "psnr_mapped": 22.680467567633634,
+        "coverage": 0.9400110197304493,
+        "depth_l1_m": 0.030645981431007385
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 16.06678466796875,
+        "ssim": 0.6609207099676132,
+        "lpips": 0.3498762328922749,
+        "psnr_mapped": 21.581564540863038,
+        "coverage": 0.9446342468261719,
+        "depth_l1_m": 0.05484817245043814
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "NBV_w3_YmJk_10-13_19-06",
+      "run": "results/archive/2026-10-13_19-06-39_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 19.036713737753495,
+        "ssim": 0.7412734454247489,
+        "lpips": 0.29569533315315766,
+        "psnr_mapped": 23.907165688661795,
+        "coverage": 0.9777417159199122,
+        "depth_l1_m": 0.023929230141365408
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 18.51664897918701,
+        "ssim": 0.6931021875143051,
+        "lpips": 0.3155382615327835,
+        "psnr_mapped": 22.622014026641846,
+        "coverage": 0.979364013671875,
+        "depth_l1_m": 0.0351985980104655
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "random_walk_YmJk_10-13_19-15",
+      "run": "results/archive/2026-10-13_19-15-58_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 21.08981893548918,
+        "ssim": 0.8078535729972878,
+        "lpips": 0.23358800992443787,
+        "psnr_mapped": 25.569110832404142,
+        "coverage": 0.9873850618428852,
+        "depth_l1_m": 0.02447506388769814
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 20.130655965805055,
+        "ssim": 0.7691348993778229,
+        "lpips": 0.25783733174204826,
+        "psnr_mapped": 24.55636728286743,
+        "coverage": 0.9778203201293946,
+        "depth_l1_m": 0.03100864203646779
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_YmJk_10-13_19-22",
+      "run": "results/archive/2026-10-13_19-22-58_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 16.126773173202626,
+        "ssim": 0.6515181837685621,
+        "lpips": 0.3231666061415601,
+        "psnr_mapped": 22.777989168167114,
+        "coverage": 0.8601193024744442,
+        "depth_l1_m": 0.043043093518353996
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 15.52354355506599,
+        "ssim": 0.6480983482580632,
+        "lpips": 0.3347948595881462,
+        "psnr_mapped": 21.778634719848633,
+        "coverage": 0.9128787612915039,
+        "depth_l1_m": 0.0547802874725312
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    },
+    {
+      "label": "native_YmJk_10-13_19-39",
+      "run": "results/archive/2026-10-13_19-39-43_mp3d_YmJkqBEsHnH",
+      "scene": "YmJkqBEsHnH",
+      "steps": 1000,
+      "env_config": "config/env/activesplat_high_resolution_pointnav.yaml",
+      "mapping_iters": 10,
+      "optimisations": "before the switches (baseline)",
+      "pose_noise": null,
+      "pose_errors": null,
+      "trajectory": {
+        "views": 201,
+        "psnr": 15.763470285308005,
+        "ssim": 0.6483710738680767,
+        "lpips": 0.3209685173200731,
+        "psnr_mapped": 22.928223485946656,
+        "coverage": 0.8369635776500797,
+        "depth_l1_m": 0.04873157634865492
+      },
+      "novel": {
+        "views": 100,
+        "psnr": 15.518013006672263,
+        "ssim": 0.6582924402039498,
+        "lpips": 0.33825442627072333,
+        "psnr_mapped": 22.1952743434906,
+        "coverage": 0.8982433700561523,
+        "depth_l1_m": 0.06292265004478395
+      },
+      "image_eval_settings": {
+        "trajectory_stride": 5,
+        "novel_views": 100,
+        "novel_radius_m": 1.5,
+        "seed": 0,
+        "covered_opacity": 0.5
+      }
+    }
+  ]
+}
