@@ -1104,7 +1104,12 @@ class Visualizer:
                         # NOTE: free_map_binary is 1 where free and visible_map_binary is 1 where nothing was rendered (unseen), see update_topdown_free_map; the ground truth is all "seen"
                         if self.__gt_free_map is None:
                             self.__gt_free_map = self.__build_gt_free_map()
-                        self.__topdown_info['free_map_binary'] = self.__gt_free_map.astype(np.uint8)
+                        free_gt = self.__gt_free_map.astype(np.uint8)
+                        # NOTE: the agent can stand a pixel outside the opened map (a doorway edge); the planner then has no contour around it, so keep a disc around the agent free
+                        if self.__frame_c2w_last is not None:
+                            x, y = np.floor(translations_world_to_topdown(np.asarray(self.__frame_c2w_last[:3, 3], dtype=np.float64).reshape(1, 3), self.__topdown_info, np.float64))[0].astype(int)
+                            cv2.circle(free_gt, (int(x), int(y)), int(np.ceil(float(self.__dataset_config.agent_radius) / self.__topdown_info['meter_per_pixel'])), 1, -1)
+                        self.__topdown_info['free_map_binary'] = free_gt
                         self.__topdown_info['visible_map_binary'] = np.zeros_like(self.__topdown_info['free_map_binary'])
                 
                 trace_display = tracer.begin()
