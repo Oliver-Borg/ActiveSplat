@@ -80,6 +80,92 @@ What the results say about the contrast (single runs apart from native, so indic
 - oracle-info vs tour: the tour has a shorter path (14.8 m against 22.6 m), better final coverage (90.8 to 92.6 % against 88.9 %) and slightly better AUC (63.6 to 64.5 against 62.3); the oracle-info advantage is that it keeps the real mapper in the loop. Differences of this size are within what single runs can show. Not separated by this data: the two differ in several ways at once (candidates, route optimisation, feedback), and there is one run per scene.
 - Caveat: these are three bundles of differences, not single-factor ablations. A cleaner test (e.g. oracle-info with GT navigation, or NBV restricted to mapper-known free space) was not run (`planner.oracle.navigation: gt_navmesh` is still open in `docs/oracle_baselines.md`).
 
+## Pseudocode of each method
+
+Simplified from `scripts/nodes/planner_node.py` (native, oracle-info) and `scripts/oracle/*.py` (the rest). Names are descriptive, not the code's. `act(a)` = one simulator action: forward 0.065 m, turn 10°, tilt 15°; every step the SplaTAM mapper maps the new frame.
+
+### Random walk (`random_walk.py`; needs no scene, no mapper feedback)
+```
+actions = []
+while len(actions) < 1000:
+    turn = random choice of {LEFT, RIGHT}
+    actions += [turn] * randint(0, 18)
+    actions += [FORWARD] * randint(5, 30)          # blocked steps do nothing in the simulator
+    if rand() < 0.03: actions.append(random choice of {UP, DOWN})
+write actions[:1000]; replay them through ActiveSplat
+```
+
+### Native ActiveSplat planner (online, uses only the map built so far)
+```
+loop each planning step:
+    free_map, visible_map = top-down render of the Gaussians          # what the mapper believes is free / seen
+    graph = Voronoi graph of free_map; nodes = graph nodes; subregions = clusters of nodes
+    for node in nodes (skip failed nodes, nodes near obstacles, nodes near already-rotated-at places):
+        invisibility[node] = sum(1 - opacity) of a 360° look-around (3 renders) rendered from the Gaussians at node
+    score[node] = weighted sum of: unvisited, not-failed, directly reachable by a line in free space,
+                  inside the horizon box of the last forward move, normalised invisibility, normalised hole volume
+    if hierarchical planning:
+        if current subregion still has a node with invisibility above threshold (250): candidates = nodes of this subregion   # local plan
+        else: candidates = nodes of the best-scoring other subregion                                                       # global plan
+    for s in scores from high to low:                                      # ties: closest node by safe Dijkstra path on the graph
+        pick the node with score s that has a path; skip nodes that are too far if a nearer one is acceptable
+    follow the path (interpolated waypoints) to the node
+    on arrival: choose the look-direction (rotation, pitch) toward the largest unmapped cluster in the local look-around,
+                rotate there, map, repeat
+if everything is visited or failed: relax weights (invisibility 10, ignore horizon) and clear the failed list
+```
+
+### Oracle-info (Tier 2) = the native loop with one change
+```
+same as native, except the look-around is not rendered from the Gaussians:
+    invisibility[node] = number of GT-mesh surface samples visible in the 360° look-around from node (raycast, 4 m range)
+                         that the sensor has NOT yet observed      # observed set = voxels (5 cm) updated from every received frame
+candidate nodes, scoring, hierarchy, travel and rotation selection are untouched;
+nodes still come from the Voronoi graph of the mapper's own free map
+```
+
+### Tour (offline, open loop; `plan_tour.py --max_steps 1000`)
+```
+views     = {(position, yaw, pitch)}: GT-navmesh positions x yaws x pitches (-30, 0, 30°)
+visible[v]= GT observable surface samples seen from view v (raycast)               # precomputed once
+budget    = 1000; scale = 1.0
+repeat (replan, rescale the estimated cost until the executed length is within 2-4 % of 1000 steps):
+    order = [start]; covered = {}
+    repeat up to 4 times:
+        while a view fits in the remaining estimated budget:
+            for each view v: extra[v] = walking to insert v's position into the route (cheapest insertion)
+                                        + longer sweep at that position + entry turn
+            pick v with the highest |visible[v] \ covered| / extra[v]  (lazy greedy); insert it; covered |= visible[v]
+        2-opt reorder of the positions (geodesic distance + sweep turns)         # may free budget
+    heading order only: local search on the visit order to minimise turns/tilts (start heading, sweep order)
+    actions = []
+    for position in order:
+        walk there with habitat's greedy geodesic follower;  for (yaw, pitch) in sweep order: turn/tilt to it
+    if the executed length overruns: cut at 1000
+write actions; replay them through ActiveSplat   # no feedback from the mapper or sensor during the replay
+```
+
+### NBV (Tier 3, closed loop on the oracle's own observed set; `plan_nbv.py`)
+```
+views, visible[v] as for the tour;  seen = {}
+gain_bound[v] = |visible[v]|                          # (x max(1, w) with --view_weight w)
+while steps < 1000:
+    best = none
+    for v in views, highest gain_bound / (walking lower bound) first:                    # lazy greedy
+        if gain_bound[v] / (walking lower bound) <= best_score: break                    # no later view can win
+        gain = |visible[v] \ seen|  (+ w x samples seen again from a direction >= 20° away, if w > 0)
+        gain_bound[v] = gain                                                             # gains only shrink
+        cost = geodesic(current, v) / 0.065 + turns + tilts            (at least 1)
+        score = gain * min(1, remaining_steps / cost) / cost                             # cap at what the budget can reach
+        best = argmax score
+    if no view gains >= min_gain: stop
+    go_to(position of best) with the greedy geodesic follower; turn/tilt to its (yaw, pitch)
+    seen |= samples visible from the simulator's pose after each step; gain_bound[best] = 0
+write actions; replay them through ActiveSplat      # the mapper is not consulted while planning
+```
+
+Differences that matter, in one place: native and oracle-info decide **during** the run from the mapper's map (only places it already knows to be free, one node at a time, with a fixed scoring recipe); the tour decides **everything before** the run and never revisits the decision; NBV decides **one view at a time before** the run, always from where it currently stands, using its own record of what it has seen.
+
 ## Reading
 - **Knowing the scene helps exploration, and how it is used matters more than whether it is used.** Tier 3 (NBV: free poses, GT navmesh, myopic closed loop) is best on every scene: AUC 77 against 59 for native, 80 % coverage in about 400 steps against about 625, 95 % at 1000 steps against 83 %. It also walks more (29 m against 22 m).
 - Oracle-info, which only knows what is unseen but keeps the native candidates and hierarchy, is a modest gain (AUC +3, coverage at 1000 steps +5.5), mostly on the scenes where native stalls (pLe4wQe7qrG, YmJkqBEsHnH). On gZ6f7yhEvPG and GdvgFV5R1Z5 it is within the native seed noise. The bottleneck is therefore the planner's candidate set and tour structure, not the unseen-geometry estimate.
