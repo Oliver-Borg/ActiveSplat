@@ -35,6 +35,7 @@ from utils import optimisations, PROJECT_NAME, OPENCV_TO_OPENGL, CURRENT_FRUSTUM
 from utils.camera_utils import Camera
 from dataloader.dataloader import HabitatDataset
 from oracle import OracleScene, observable_cache_path, load_observable
+from oracle.gt_map import gt_free_map
 
 from scripts.nodes import frame, TURN, SPEED,\
     GetDatasetConfig, GetDatasetConfigResponse, GetDatasetConfigRequest,\
@@ -198,6 +199,7 @@ class Visualizer:
         bbox = self.__bbox_visualize.copy()
         frame_first = self.__frames_cache.get()
         c2w = frame_first['c2w'].detach().cpu().numpy()
+        self.__start_position_world = c2w[:3, 3].copy()
         agent_sensor = c2w[self.__height_direction[0], 3]
         agent_height_start = agent_sensor - self.__rgbd_sensor.position[self.__height_direction[0]]
         agent_height_end = agent_height_start + self.__dataset_config.agent_height
@@ -421,6 +423,7 @@ class Visualizer:
             self.__local_dataset_condition.notify_all()
             self.__local_dataset_condition.release()
         
+        self.__gt_free_map = None
         if os.path.exists(self.__dataset_config.scene_mesh_url):
             self.__scene_mesh_transform = pose_to_matrix(self.__dataset_config.scene_mesh_transform)
             scene_mesh, self.__bbox_visualize = load_scene_mesh(
@@ -439,8 +442,15 @@ class Visualizer:
                 Log(f'Oracle planner: {len(self.__oracle.points)} surface samples', tag=PROJECT_NAME)
             elif oracle_config['mode'] != 'native':
                 raise ValueError(f"Unknown planner.oracle.mode: {oracle_config['mode']}")
+            self.__gt_free_map = None
+            self.__gt_navigation = oracle_config.get('navigation', 'mapper')
+            if self.__gt_navigation not in ('mapper', 'gt_free_map'):
+                raise ValueError(f"Unknown planner.oracle.navigation: {self.__gt_navigation}")
+            if self.__gt_navigation == 'gt_free_map' and self.__oracle is None:
+                raise ValueError("planner.oracle.navigation = gt_free_map needs planner.oracle.mode = info")
         else:
             scene_mesh = None
+            self.__gt_navigation = 'mapper'
             if self.__config_planner.get('oracle', {'mode': 'native'})['mode'] != 'native':
                 raise ValueError('The oracle planner needs the scene mesh (scene_mesh_url does not exist)')
             self.__bbox_visualize = np.array([
@@ -1084,6 +1094,12 @@ class Visualizer:
                         cv2.COLOR_RGB2GRAY)
                     self.__topdown_info['free_map_binary'] = (self.__render_topdown_free_map <= 0.4).astype(np.uint8)
                     self.__topdown_info['visible_map_binary'] = (topdown_gray_visible_map == 255).astype(np.uint8)
+                    if self.__gt_navigation == 'gt_free_map':
+                        # NOTE: the planner's free and "unseen" maps both mark what is not free space (see update_topdown_free_map), so the ground truth sets both
+                        if self.__gt_free_map is None:
+                            self.__gt_free_map = self.__build_gt_free_map()
+                        self.__topdown_info['free_map_binary'] = (~self.__gt_free_map).astype(np.uint8)
+                        self.__topdown_info['visible_map_binary'] = (~self.__gt_free_map).astype(np.uint8)
                 
                 trace_display = tracer.begin()
                 self.__topdown_info['free_map_cv2'] = self.__render_topdown_free_map_cv2
@@ -2406,6 +2422,16 @@ class Visualizer:
     def __get_dataset_config(self, req:GetDatasetConfigRequest) -> GetDatasetConfigResponse:
         return self.__dataset_config
     
+    def __build_gt_free_map(self) -> np.ndarray:
+        observable_path = observable_cache_path(self.__config_planner['oracle'].get('cache_root', os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data')),
+                                                self.__config_dataset['format'], self.scene_id if self.scene_id != 'None' else self.__config_dataset['scene_id'])
+        island_positions = np.load(observable_path)['camera_positions']
+        start = self.__start_position_world
+        free = gt_free_map(self.__oracle.points, island_positions, start, self.__topdown_info, (self.__agent_head, self.__agent_foot - self.__agent_foot_adjust))
+        Log(f'GT free map: {int(free.sum())} free pixels', tag=PROJECT_NAME)
+        imwrite_jpeg(os.path.join(self.__results_dir, 'gt_free_map.jpg'), (free * 255).astype(np.uint8))
+        return free
+
     @tracer.traced('service get_topdown')
     def __get_topdown(self, req:GetTopdownRequest) -> GetTopdownResponse:
         with self.__get_topdown_condition:

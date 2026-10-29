@@ -80,7 +80,7 @@ Status legend: `[x]` done, `[ ]` to do. Tick boxes as work lands.
 
 ### Later (not started)
 - [x] Tier 3: oracle greedy NBV with free candidate poses on the GT navmesh (`scripts/oracle/plan_nbv.py`, replayed through ActiveSplat; see "Equal-budget results")
-- [ ] GT navmesh for navigation (`planner.oracle.navigation: gt_navmesh`)
+- [~] GT free map for navigation (`planner.oracle.navigation: gt_free_map`, `src/oracle/gt_map.py`, config `mp3d_high_resolution_oracle_info_gt_free_map.json`): the planner's top-down free map is rasterised from the GT mesh (height band of the agent, start-floor island, connected to the start), so the Voronoi graph, subregions and nodes cover the whole floor from step 0 while the scoring stays oracle-info. Frame/occupancy checked offline against a run's Gaussians (89 % agreement); not yet run end to end
 - [x] View-count requirement in Tier 3 (`plan_nbv.py --view_weight`: a second sighting from a direction 20° or more from the first is worth w new samples). Grazing-angle is not done.
 - [x] Heading-aware tour ordering (`plan_tour.py`, `--no_heading_order` turns it off)
 
