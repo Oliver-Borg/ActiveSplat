@@ -77,7 +77,7 @@ In one sentence each:
 What the results say about the contrast (single runs apart from native, so indicative):
 - oracle-info → NBV isolates the value of **knowing the free space and choosing free poses** (not just knowing what is unseen): AUC 62 to 77, 89 % to 95 % final coverage. oracle-info is within native noise on two scenes, so the unseen-geometry knowledge alone is a small part of the gain.
 - tour → NBV isolates **replanning against greedy gain per action versus a fixed global route**: the tour matches NBV only at the end (92.6 % vs 95.3 % at 1000 steps) while AUC is 64.5 vs 77.2.
-- oracle-info vs tour: the tour has a shorter path and better final coverage, oracle-info has the better early-mid curve on some scenes and uses the real mapper in the loop. Not separated by this data: the two differ in several ways at once (candidates, route optimisation, feedback), and there is one run per scene.
+- oracle-info vs tour: the tour has a shorter path (14.8 m against 22.6 m), better final coverage (90.8 to 92.6 % against 88.9 %) and slightly better AUC (63.6 to 64.5 against 62.3); the oracle-info advantage is that it keeps the real mapper in the loop. Differences of this size are within what single runs can show. Not separated by this data: the two differ in several ways at once (candidates, route optimisation, feedback), and there is one run per scene.
 - Caveat: these are three bundles of differences, not single-factor ablations. A cleaner test (e.g. oracle-info with GT navigation, or NBV restricted to mapper-known free space) was not run (`planner.oracle.navigation: gt_navmesh` is still open in `docs/oracle_baselines.md`).
 
 ## Reading
