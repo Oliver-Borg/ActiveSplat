@@ -3,6 +3,7 @@
 # each running two scenes one after the other. Before every launch the worker waits until its GPU has no compute processes and almost no memory in use.
 #   bash experiments/2026-10-29_oracle_info_gt_free_map/run.sh <gpu A> <gpu B>   (v2 = with the opening by the agent radius; v1 was this script without it, on GPUs 1 and 2)
 cd "$(dirname "$0")/../.."
+V=${V:-v2}  # v3 = v2 plus a free disc around the agent; SCENES_A / SCENES_B override the scene lists
 cfg=mp3d_high_resolution_oracle_info_gt_free_map.json
 label="oracle-info (GT free map)"
 gpu_is_free() {
@@ -23,11 +24,11 @@ worker() {  # gpu port scene...
     for i in $(seq 1 1200); do grep -aq "mapper node finished" "$log" && break; kill -0 $pid 2>/dev/null || break; sleep 5; done
     kill -INT $pid; sleep 15; kill -KILL $pid 2>/dev/null
     run=$(comm -13 <(echo "$before") <(ls -d results/*_$scene) | tail -1)
-    echo "$(date +%T) gpu $gpu $scene -> $run ($(grep -ac 'mapper node finished' "$log") finished)" >> experiments/2026-10-29_oracle_info_gt_free_map/manifest_v2.txt
+    echo "$(date +%T) gpu $gpu $scene -> $run ($(grep -ac 'mapper node finished' "$log") finished)" >> experiments/2026-10-29_oracle_info_gt_free_map/manifest_$V.txt
     [ -n "$run" ] && echo "$label" > $run/label.txt && python scripts/oracle/coverage.py --run_dir $run --user_config config/user_config.json > "$run/coverage_log.txt" 2>&1
-    cp "$log" "experiments/2026-10-29_oracle_info_gt_free_map/launch_v2_$scene.log"; rm -f "$log"
+    cp "$log" "experiments/2026-10-29_oracle_info_gt_free_map/launch_${V}_$scene.log"; rm -f "$log"
   done
 }
-worker ${1:?gpu A} 11431 gZ6f7yhEvPG pLe4wQe7qrG &
-worker ${2:?gpu B} 11432 GdvgFV5R1Z5 YmJkqBEsHnH &
+worker ${1:?gpu A} 11431 ${SCENES_A:-gZ6f7yhEvPG pLe4wQe7qrG} &
+[ -n "${2:-}" ] && worker $2 11432 ${SCENES_B:-GdvgFV5R1Z5 YmJkqBEsHnH} &
 wait
